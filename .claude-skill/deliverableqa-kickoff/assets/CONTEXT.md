@@ -1,7 +1,7 @@
 
-# DeliverableQA Agent — Build Spec for PI Agent
+# DeliverableQA Agent — Build Spec for Claude Code
 
-Hand this whole file to the PI agent as the kickoff prompt. It contains the architecture, every system prompt, the output schema, and the build order.
+Hand this whole file to Claude Code as the kickoff prompt. It contains the architecture, every system prompt, the output schema, and the build order.
 
 ## Architecture
 
@@ -39,6 +39,23 @@ Human review → apply fixes → re-run pipeline (loop)
 - **Parsing**: `mammoth` (docx), `jszip` (pptx), `unpdf` or `pdfjs-dist` (pdf)
 - **Config**: YAML checklists/style rules as static assets, parsed with `js-yaml`
 - **Dashboard**: Astro + Chart.js on Cloudflare Pages
+- **LLM backbone**: configurable via `LLM_PROVIDER` env var — `claude` | `openai` | `ollama` | `workers-ai`. Agents call whichever endpoint is set; switching providers is a config change, not a rewrite. Defaults to `claude` for build/demo, with `ollama` (self-hosted) or Cloudflare's own `workers-ai` binding available if data-handling concerns favour a non-API-vendor model.
+
+### Proposal doc → actual implementation
+
+The original project proposal specified a Python/local stack. The team moved to a Cloudflare-native TypeScript stack for live deployment (matching the agentathon's cloud-deployment theme) instead of running locally. Mapping for reference:
+
+| Component | Proposal doc | This implementation |
+|---|---|---|
+| Orchestrator & agents | Python + LangGraph | TypeScript Worker, `Promise.all()` fan-out (langgraphjs optional later) |
+| LLM backbone | GPT-4o / Claude via API | `LLM_PROVIDER` config — Claude, OpenAI, Ollama, or Workers AI |
+| Document parsing | python-docx, python-pptx, PyMuPDF | mammoth (docx), jszip (pptx), unpdf/pdfjs-dist (pdf) |
+| Style rules | YAML config file | Same — YAML, parsed with js-yaml |
+| QA dashboard | HTML + Chart.js, single-page, local | Astro + Chart.js, deployed to Cloudflare Pages |
+| Prompts & instructions | Structured system prompts, versioned `.md` files | Same — see the 5 prompts below, versioned in this file and `src/agents/*.ts` |
+| Deployment | None specified — runs locally, no client data leaves the machine | Cloudflare Workers + Pages via Wrangler CLI; provider choice above still lets you avoid third-party API vendors if needed |
+
+This directly answers proposal discussion question #2 ("Azure OpenAI vs local Ollama + Llama 3 to avoid data-handling concerns") — both are now just a `LLM_PROVIDER` value away, no architecture change required.
 
 ## Shared output schema (every agent returns this)
 
@@ -217,11 +234,9 @@ mismatches.
 Output strictly as JSON matching the shared DeliverableQA finding schema.
 ```
 
-
-cat > assets/CONTEXT.md << 'EOF'
 ---
 
-## # DeliverableQA Agent — Build Spec for PI Agent
+## Build order for Claude Code
 
 1. **Scaffold**: repo structure below, document parser (docx/pptx/pdf → unified section-tagged text), orchestrator (parse → parallel fan-out → merge → report).
 2. **Prompts**: drop the five system prompts above into `src/agents/*.ts`, each calling the shared JSON schema (enforce via structured output / JSON mode).

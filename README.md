@@ -70,6 +70,9 @@ flowchart TD
 | Parsing | `mammoth` (docx) · `jszip` (pptx) · `unpdf` / `pdfjs-dist` (pdf) |
 | Style/checklist config | YAML, parsed with `js-yaml` |
 | Dashboard | Astro + Chart.js on Cloudflare Pages |
+| LLM backbone | `LLM_PROVIDER` env var — `claude` \| `openai` \| `ollama` \| `workers-ai`, swappable without a rewrite |
+
+> See [`CONTEXT.md`](./CONTEXT.md#proposal-doc--actual-implementation) for how this maps back to the original proposal's stack (Python/LangGraph → TypeScript/Workers).
 
 ## Repo structure
 
@@ -131,6 +134,8 @@ wrangler pages deploy dashboard/dist --project-name=deliverableqa-dashboard
 ```
 
 Full environment setup for WSL Debian is in [`.claude-skill/deliverableqa-kickoff/references/deployment-setup.md`](./.claude-skill/deliverableqa-kickoff/references/deployment-setup.md).
+
+> This repo is being built incrementally with **Claude Code**, working through `CONTEXT.md` step by step (scaffold → one agent → orchestrator wiring → remaining agents → merge logic → dashboard) rather than one large autonomous generation.
 
 ## Roadmap
 

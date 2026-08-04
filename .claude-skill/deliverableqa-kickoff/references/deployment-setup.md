@@ -60,5 +60,5 @@ wrangler deploy
 wrangler pages deploy dashboard/dist --project-name=deliverableqa-dashboard
 ```
 
-Normal cycle: PI agent edits code → `wrangler deploy` to check → `git push` → `gh pr create` for teammate review.
+Normal cycle: Claude Code edits code → `wrangler deploy` to check → `git push` → `gh pr create` for teammate review.
 
