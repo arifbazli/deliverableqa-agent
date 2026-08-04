@@ -20,22 +20,22 @@ Every engagement ends the same way: a last-minute scramble to QA a 30–80 page 
 An orchestrator dispatches a draft deliverable to four specialist review agents in parallel, merges and ranks their findings by severity, and renders a QA report before a human ever opens the document.
 
 ## Architecture
-
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'fontFamily': 'system-ui, sans-serif', 'fontSize': '14px', 'lineColor': '#8a8a85', 'edgeLabelBackground':'transparent'}}}%%
 flowchart TD
-    A["Draft deliverable<br/>Word / PDF / PPTX + engagement type"] --> B
+    A["Draft deliverable<br/><span style='font-size:11px'>Word · PDF · PPTX</span>"]:::io --> B
 
-    B["Orchestrator<br/>parse & dispatch"] --> C1
+    B["Orchestrator<br/><span style='font-size:11px'>parse & dispatch</span>"]:::orch --> C1
     B --> C2
     B --> C3
     B --> C4
 
     subgraph agents [" Specialist agents — run in parallel "]
         direction LR
-        C1["Consistency<br/>numbers, dates, claims"]
-        C2["Brand / Format<br/>fonts, colours, disclaimers"]
-        C3["Language / Tone<br/>clarity, unsubstantiated claims"]
-        C4["Structure<br/>required sections"]
+        C1["Consistency<br/><span style='font-size:11px'>numbers, dates, claims</span>"]:::agent
+        C2["Brand / Format<br/><span style='font-size:11px'>fonts, colours, disclaimers</span>"]:::agent
+        C3["Language / Tone<br/><span style='font-size:11px'>clarity, unsubstantiated claims</span>"]:::agent
+        C4["Structure<br/><span style='font-size:11px'>required sections</span>"]:::agent
     end
 
     C1 --> D
@@ -43,19 +43,15 @@ flowchart TD
     C3 --> D
     C4 --> D
 
-    D["Orchestrator<br/>merge, dedupe & rank"] --> E
-    E["QA report<br/>dashboard + detailed findings"] --> F
-    F["Human review<br/>apply fixes"] -.->|re-run after fixes| A
+    D["Orchestrator<br/><span style='font-size:11px'>merge, dedupe & rank</span>"]:::orch --> E
+    E["QA report<br/><span style='font-size:11px'>dashboard + detailed findings</span>"]:::out --> F
+    F["Human review<br/><span style='font-size:11px'>apply fixes</span>"]:::io -.->|"&#8635; re-run after fixes"| A
 
-    classDef input fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
-    classDef control fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,font-size:14px
-    classDef agent fill:#ccfbf1,stroke:#0d9488,color:#134e4a,font-size:14px
-    classDef output fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
-
-    class A input
-    class B,D control
-    class C1,C2,C3,C4 agent
-    class E,F output
+    classDef io fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A,stroke-width:1.5px
+    classDef orch fill:#EEEDFE,stroke:#534AB7,color:#3C3489,stroke-width:1.5px
+    classDef agent fill:#E1F5EE,stroke:#0F6E56,color:#085041,stroke-width:1.5px
+    classDef out fill:#FAECE7,stroke:#993C1D,color:#712B13,stroke-width:1.5px
+    style agents fill:#FAFAF9,stroke:#D3D1C7,stroke-width:1px
 ```
 
 ## Tech stack
