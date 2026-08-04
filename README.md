@@ -22,7 +22,7 @@ An orchestrator dispatches a draft deliverable to four specialist review agents 
 ## Architecture
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': {'fontFamily': 'system-ui, sans-serif', 'fontSize': '14px', 'lineColor': '#8a8a85', 'edgeLabelBackground':'transparent'}}}%%
-flowchart TD
+flowchart LR
     A["Draft deliverable<br/><span style='font-size:11px'>Word · PDF · PPTX</span>"]:::io --> B
 
     B["Orchestrator<br/><span style='font-size:11px'>parse & dispatch</span>"]:::orch --> C1
@@ -30,8 +30,8 @@ flowchart TD
     B --> C3
     B --> C4
 
-    subgraph agents [" Specialist agents — run in parallel "]
-        direction LR
+    subgraph agents [" Specialist agents — parallel "]
+        direction TB
         C1["Consistency<br/><span style='font-size:11px'>numbers, dates, claims</span>"]:::agent
         C2["Brand / Format<br/><span style='font-size:11px'>fonts, colours, disclaimers</span>"]:::agent
         C3["Language / Tone<br/><span style='font-size:11px'>clarity, unsubstantiated claims</span>"]:::agent
@@ -53,7 +53,6 @@ flowchart TD
     classDef out fill:#FAECE7,stroke:#993C1D,color:#712B13,stroke-width:1.5px
     style agents fill:#FAFAF9,stroke:#D3D1C7,stroke-width:1px
 ```
-
 ## Tech stack
 
 | Layer | Tool |
