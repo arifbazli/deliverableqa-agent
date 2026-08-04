@@ -72,7 +72,7 @@ flowchart TD
 | Dashboard | Astro + Chart.js on Cloudflare Pages |
 | LLM backbone | `LLM_PROVIDER` env var — `claude` \| `openai` \| `ollama` \| `workers-ai`, swappable without a rewrite |
 
-> See [`CONTEXT.md`](./CONTEXT.md#proposal-doc--actual-implementation) for how this maps back to the original proposal's stack (Python/LangGraph → TypeScript/Workers).
+> See [`CONTEXT.md`](./CONTEXT.md#proposal-doc-actual-implementation) for how this maps back to the original proposal's stack (Python/LangGraph → TypeScript/Workers).
 
 ## Repo structure
 
