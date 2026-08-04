@@ -23,18 +23,19 @@ An orchestrator dispatches a draft deliverable to four specialist review agents 
 
 ```mermaid
 flowchart TD
-    A["📄 Draft deliverable<br/><small>Word / PDF / PPTX + engagement type</small>"] --> B
+    A["Draft deliverable<br/>Word / PDF / PPTX + engagement type"] --> B
 
-    B["🧭 Orchestrator<br/><small>parse & dispatch</small>"] --> C1
+    B["Orchestrator<br/>parse & dispatch"] --> C1
     B --> C2
     B --> C3
     B --> C4
 
-    subgraph agents ["Specialist agents — run in parallel"]
-        C1["🔢 Consistency<br/><small>numbers, dates, claims</small>"]
-        C2["🎨 Brand / Format<br/><small>fonts, colours, disclaimers</small>"]
-        C3["✍️ Language / Tone<br/><small>clarity, unsubstantiated claims</small>"]
-        C4["🧩 Structure<br/><small>required sections, completeness</small>"]
+    subgraph agents [" Specialist agents — run in parallel "]
+        direction LR
+        C1["Consistency<br/>numbers, dates, claims"]
+        C2["Brand / Format<br/>fonts, colours, disclaimers"]
+        C3["Language / Tone<br/>clarity, unsubstantiated claims"]
+        C4["Structure<br/>required sections"]
     end
 
     C1 --> D
@@ -42,14 +43,14 @@ flowchart TD
     C3 --> D
     C4 --> D
 
-    D["🧭 Orchestrator<br/><small>merge, dedupe & rank</small>"] --> E
-    E["📊 QA report<br/><small>dashboard + detailed findings</small>"] --> F
-    F["👤 Human review<br/><small>apply fixes</small>"] -.->|re-run after fixes| A
+    D["Orchestrator<br/>merge, dedupe & rank"] --> E
+    E["QA report<br/>dashboard + detailed findings"] --> F
+    F["Human review<br/>apply fixes"] -.->|re-run after fixes| A
 
-    classDef input fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
-    classDef control fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
-    classDef agent fill:#ccfbf1,stroke:#0d9488,color:#134e4a
-    classDef output fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
+    classDef input fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
+    classDef control fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,font-size:14px
+    classDef agent fill:#ccfbf1,stroke:#0d9488,color:#134e4a,font-size:14px
+    classDef output fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
 
     class A input
     class B,D control
