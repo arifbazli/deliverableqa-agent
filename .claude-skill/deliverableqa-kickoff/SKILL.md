@@ -6,18 +6,18 @@ description: >
   Agent hackathon project (the Deloitte agentathon project — an orchestrator plus 4
   specialist review agents for consulting deliverables, built with LangGraph-style
   fan-out, deployed on Cloudflare Workers/Pages via Wrangler CLI). Trigger on requests
-  like "give me the kickoff prompt", "I need the context file for PI agent",
+  like "give me the kickoff prompt", "I need the context file for Claude Code",
   "regenerate CONTEXT.md", "how do I deploy DeliverableQA", or any mention of
-  DeliverableQA, the agentathon project, or PI agent setup for this project. Always
+  DeliverableQA, the agentathon project, or Claude Code setup for this project. Always
   produce the CONTEXT.md file and a compact copy-paste kickoff prompt together, even if
-  only one is explicitly requested, since PI agent needs both.
+  only one is explicitly requested, since Claude Code needs both.
 ---
 
 # DeliverableQA Agent — kickoff skill
 
-Produces the two artifacts Mat needs to hand this project to PI agent (his CLI coding agent):
+Produces the two artifacts Mat needs to hand this project to Claude Code (his CLI coding agent):
 1. `CONTEXT.md` — the full architecture, 5 agent system prompts, and shared JSON schema
-2. A compact kickoff prompt to paste directly into PI agent, referencing CONTEXT.md
+2. A compact kickoff prompt to paste directly into Claude Code, referencing CONTEXT.md
 
 ## When to just regenerate CONTEXT.md
 
