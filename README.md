@@ -87,6 +87,8 @@ Same architecture, same 4-agent decomposition — only the runtime changed.
 
 ```
 deliverableqa-agent/
+├── .agents/skills/deliverableqa-kickoff/  # kickoff skill (Pi discovery)
+├── .claude/skills/deliverableqa-kickoff/  # kickoff skill (Claude Code discovery)
 ├── src/
 │   ├── orchestrator/       # parse.ts, dispatch.ts, merge.ts
 │   └── agents/              # consistency.ts, brand_format.ts, language_tone.ts, structure.ts
@@ -142,7 +144,18 @@ wrangler deploy
 wrangler pages deploy dashboard/dist --project-name=deliverableqa-dashboard
 ```
 
-Full environment setup for WSL Debian is in [`.claude-skill/deliverableqa-kickoff/references/deployment-setup.md`](./.claude-skill/deliverableqa-kickoff/references/deployment-setup.md).
+## Agent skill (Pi + Claude Code)
+
+The project context, agent prompts, and deployment setup are packaged as a reusable skill, discoverable by both coding agents used on this project:
+
+```
+.agents/skills/deliverableqa-kickoff/   # discovered by Pi (pi.dev)
+.claude/skills/deliverableqa-kickoff/   # discovered by Claude Code
+```
+
+Both are identical copies (`SKILL.md`, `assets/CONTEXT.md`, `references/deployment-setup.md`). There's no symlink between them — if the skill content changes, update both paths in the same commit to keep them in sync.
+
+Full environment setup for WSL Debian is in [`deployment-setup.md`](./.agents/skills/deliverableqa-kickoff/references/deployment-setup.md).
 
 > This repo is being built incrementally with **Claude Code**, working through `CONTEXT.md` step by step (scaffold → one agent → orchestrator wiring → remaining agents → merge logic → dashboard) rather than one large autonomous generation.
 
