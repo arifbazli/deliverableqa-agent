@@ -1,0 +1,16 @@
+engagement_type: consulting
+required_sections:
+  - name: Executive Summary
+    expectation: One-page synthesis of the engagement's key insight and recommended action.
+  - name: Situation and Objectives
+    expectation: Frames the business problem and what this engagement set out to solve.
+  - name: Analysis
+    expectation: The core analytical work — market, operational, financial, or organizational as relevant.
+  - name: Recommendations
+    expectation: Specific, actionable recommendations with owners and timeframes.
+  - name: Implementation Roadmap
+    expectation: Sequenced plan for executing the recommendations, including dependencies.
+  - name: Risks and Mitigations
+    expectation: Named implementation risks, each paired with a concrete mitigation.
+required_exhibits:
+  - Appendix with supporting data or financial models referenced in the body

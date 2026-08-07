@@ -29,46 +29,22 @@ QA report (dashboard + detailed findings JSON/MD)
 Human review → apply fixes → re-run pipeline (loop)
 ```
 
-## Tech stack — proposal vs. actual implementation
+## Tech stack
 
-The original proposal specified a local-only Python + LangGraph stack. The team pivoted
-to Cloudflare for a deployable, shareable demo instead of a laptop-only run. Same
-architecture, same 4-agent decomposition, same schema — only the runtime changed.
+Local-only Python + LangGraph implementation, per the original project proposal.
 
-| Layer | Original proposal | Actual implementation | Why |
-|---|---|---|---|
-| Orchestration runtime | Python + LangGraph | Cloudflare Workers, TypeScript | Edge-deployed, shareable URL for the demo instead of local-only |
-| Agent fan-out | LangGraph graph nodes | `Promise.all()` parallel `fetch()` calls | Agent calls are network-bound (LLM API), not CPU-bound — no graph framework needed for v1 |
-| LLM backbone | GPT-4o / Claude via API | Same — configurable via `LLM_PROVIDER` (claude / openai / ollama / workers-ai) | Unchanged in spirit; provider stays swappable |
-| Document parsing | python-docx, python-pptx, PyMuPDF | `mammoth` (docx), `jszip` (pptx), `unpdf` / `pdfjs-dist` (pdf) | TS equivalents of the same parsing job, run in-Worker |
-| Style/checklist rules | YAML config file | YAML config file, unchanged, parsed with `js-yaml` | No change — still editable per engagement type |
-| File handling | Local filesystem | Cloudflare R2 | Needed once deployment moved off a single machine |
-| Findings storage | In-memory / local JSON | Cloudflare D1 | Persists findings across runs, powers dashboard history |
-| Run state | N/A (single local process) | Durable Objects (one per QA run) | Enables a live-updating dashboard during a run |
-| QA Dashboard | Static HTML + Chart.js | Astro + Chart.js on Cloudflare Pages | Same charting library; Astro adds routing for multiple runs |
-| Deployment | None — runs locally | Wrangler CLI → Cloudflare Workers + Pages | Trades "no client data leaves the machine" for "deployable, demo-able, shareable" |
+- **Orchestration runtime**: Python + LangGraph
+- **Agent fan-out**: LangGraph graph nodes, one per specialist agent, run in parallel
+- **LLM backbone**: Claude, via Amazon Bedrock (`AsyncAnthropicBedrock`, model `global.anthropic.claude-sonnet-5`) — the team's Bedrock IAM policy denies Opus/Fable and requires the `global.` cross-region inference profile prefix for Sonnet, so this is what's actually reachable rather than a plain `ANTHROPIC_API_KEY` call
+- **Document parsing**: `python-docx` (docx), `python-pptx` (pptx), `PyMuPDF` (pdf)
+- **Style/checklist rules**: YAML config file, editable per engagement type
+- **File handling**: local filesystem
+- **Findings storage**: local JSON
+- **QA Dashboard**: single-page HTML + Chart.js report, reads local findings JSON
+- **Prompts**: structured system prompts per agent role, stored as versioned `.md` files (see `prompts/`), loaded at runtime — not hardcoded in source
+- **Deployment**: none — runs locally, no client data leaves the machine
 
-**Data-handling note:** the original proposal's local-only model kept client data off any
-external machine. Cloudflare deployment changes that — data now transits Cloudflare's edge
-and the LLM API. Use synthetic or already-sanitized deliverables for the demo, consistent
-with the original proposal's discussion question #4.
-- **LLM backbone**: configurable via `LLM_PROVIDER` env var — `claude` | `openai` | `ollama` | `workers-ai`. Agents call whichever endpoint is set; switching providers is a config change, not a rewrite. Defaults to `claude` for build/demo, with `ollama` (self-hosted) or Cloudflare's own `workers-ai` binding available if data-handling concerns favour a non-API-vendor model.
-
-### Proposal doc → actual implementation
-
-The original project proposal specified a Python/local stack. The team moved to a Cloudflare-native TypeScript stack for live deployment (matching the agentathon's cloud-deployment theme) instead of running locally. Mapping for reference:
-
-| Component | Proposal doc | This implementation |
-|---|---|---|
-| Orchestrator & agents | Python + LangGraph | TypeScript Worker, `Promise.all()` fan-out (langgraphjs optional later) |
-| LLM backbone | GPT-4o / Claude via API | `LLM_PROVIDER` config — Claude, OpenAI, Ollama, or Workers AI |
-| Document parsing | python-docx, python-pptx, PyMuPDF | mammoth (docx), jszip (pptx), unpdf/pdfjs-dist (pdf) |
-| Style rules | YAML config file | Same — YAML, parsed with js-yaml |
-| QA dashboard | HTML + Chart.js, single-page, local | Astro + Chart.js, deployed to Cloudflare Pages |
-| Prompts & instructions | Structured system prompts, versioned `.md` files | Same — see the 5 prompts below, versioned in this file and `src/agents/*.ts` |
-| Deployment | None specified — runs locally, no client data leaves the machine | Cloudflare Workers + Pages via Wrangler CLI; provider choice above still lets you avoid third-party API vendors if needed |
-
-This directly answers proposal discussion question #2 ("Azure OpenAI vs local Ollama + Llama 3 to avoid data-handling concerns") — both are now just a `LLM_PROVIDER` value away, no architecture change required.
+**Structured output note:** `output_config.format` / `strict` tool schemas aren't supported on this Bedrock route, and a `$ref`/`$defs`-based Pydantic schema makes `claude-sonnet-5` unreliably stringify nested fields instead of emitting real JSON (confirmed ~90% failure rate in testing). Agents use forced tool-use (`tool_choice`) against a `$ref`-inlined flat schema instead, plus a small repair step for the residual cases where a field still comes back stringified — see `agents/schema.py`.
 
 ## Shared output schema (every agent returns this)
 
@@ -251,27 +227,32 @@ Output strictly as JSON matching the shared DeliverableQA finding schema.
 
 ## Build order for Claude Code
 
-1. **Scaffold**: repo structure below, document parser (docx/pptx/pdf → unified section-tagged text), orchestrator (parse → parallel fan-out → merge → report).
-2. **Prompts**: drop the five system prompts above into `src/agents/*.ts`, each calling the shared JSON schema (enforce via structured output / JSON mode).
+1. **Scaffold**: Python venv + `requirements.txt`, repo structure below, document parser (docx/pptx/pdf → unified section-tagged text), orchestrator (parse → parallel fan-out via LangGraph → merge → report).
+2. **Prompts**: the five system prompts above live as versioned `.md` files under `prompts/`, loaded at runtime by each agent module (not hardcoded strings), each enforcing output via the shared JSON schema (structured/forced-JSON output).
 3. **YAML configs**: `config/checklists/{advisory,audit,tax,consulting}.yaml` (required sections) and `config/style_rules.yaml` (fonts, colours, disclaimers).
 4. **Merge logic**: dedup (semantic similarity on description + same location), severity sort, dashboard aggregation.
-5. **Dashboard**: Astro app + Chart.js, reads merged JSON from D1, renders severity counts + top critical items + full findings table.
+5. **Dashboard**: single-page HTML + Chart.js report, reads local findings JSON, renders severity counts + top critical items + full findings table.
 6. **Test loop**: 3 sample deliverables with planted errors (one per engagement type) → run end-to-end → verify each agent's known planted error is caught → tune prompts.
 
 ## Suggested repo structure
 
 ```
 deliverableqa-agent/
-├── src/
-│   ├── orchestrator/
-│   │   ├── parse.ts
-│   │   ├── dispatch.ts
-│   │   └── merge.ts
-│   └── agents/
-│       ├── consistency.ts
-│       ├── brand_format.ts
-│       ├── language_tone.ts
-│       └── structure.ts
+├── orchestrator/
+│   ├── parse.py
+│   ├── dispatch.py
+│   └── merge.py
+├── agents/
+│   ├── consistency.py
+│   ├── brand_format.py
+│   ├── language_tone.py
+│   └── structure.py
+├── prompts/
+│   ├── orchestrator.md
+│   ├── consistency.md
+│   ├── brand_format.md
+│   ├── language_tone.md
+│   └── structure.md
 ├── config/
 │   ├── checklists/
 │   │   ├── advisory.yaml
@@ -279,10 +260,10 @@ deliverableqa-agent/
 │   │   ├── tax.yaml
 │   │   └── consulting.yaml
 │   └── style_rules.yaml
-├── dashboard/            # Astro app, deployed to Cloudflare Pages
-├── samples/              # 3+ planted-error test deliverables
+├── dashboard/             # single-page HTML + Chart.js report
+├── samples/               # 3+ planted-error test deliverables
 ├── schema/
 │   └── finding.schema.json
-└── wrangler.toml         # R2 bucket, D1 database, Durable Object bindings
+└── requirements.txt
 ```
 

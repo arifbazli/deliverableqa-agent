@@ -5,3 +5,8 @@ dist/
 .dev.vars
 .DS_Store
 .crew/
+
+.venv/
+__pycache__/
+*.pyc
+output/

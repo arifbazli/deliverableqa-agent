@@ -1,0 +1,16 @@
+engagement_type: tax
+required_sections:
+  - name: Executive Summary
+    expectation: Plain-language summary of the tax position and headline advice.
+  - name: Facts and Assumptions
+    expectation: States the facts relied upon and any assumptions made where facts were incomplete.
+  - name: Basis of Advice
+    expectation: Cites the specific legislation, rulings, or guidance the advice rests on.
+  - name: Analysis
+    expectation: Applies the basis of advice to the client's specific facts.
+  - name: Conclusion and Recommendation
+    expectation: A direct answer to the question the client asked, plus any recommended follow-up action.
+  - name: Limitations and Disclaimers
+    expectation: Standard scope and reliance limitations, and any jurisdiction- or date-sensitivity caveats.
+required_exhibits:
+  - Appendix with supporting calculations

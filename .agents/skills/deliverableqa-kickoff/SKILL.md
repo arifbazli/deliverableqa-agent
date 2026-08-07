@@ -1,6 +1,6 @@
 
 ---
-name: deliverableqa-kickoffa
+name: deliverableqa-kickoff
 description: Use this whenever Mat wants to start, resume, or hand off work on the DeliverableQA Agent hackathon project (the Deloitte agentathon project, an orchestrator plus 4 specialist review agents for consulting deliverables, built with LangGraph-style fan-out, deployed on Cloudflare Workers/Pages via Wrangler CLI). Trigger on requests like "give me the kickoff prompt", "I need the context file for Pi", "regenerate CONTEXT.md", "how do I deploy DeliverableQA", or any mention of DeliverableQA, the agentathon project, or Pi setup for this project. Always produce the CONTEXT.md file and a compact copy-paste kickoff prompt together, even if only one is explicitly requested, since Pi needs both.
 ---
 
@@ -25,32 +25,41 @@ Give this compact prompt (adapt lightly to what he's asking for — e.g. if he o
 Read CONTEXT.md in this repo — it has the full architecture, 5 agent system prompts,
 and shared output schema for DeliverableQA Agent.
 
-Build target: Cloudflare Workers + Pages, TypeScript, Bun runtime, deployed via
-Wrangler CLI (already authenticated). Not Python — rewrite the pipeline in TS.
+Build target: Python + LangGraph, running locally. No cloud deployment — no client
+data leaves the machine.
 
 Stack mapping:
-- Orchestrator: Worker that fans out 4 parallel fetch() calls to the LLM API
-  (plain Promise.all is enough for v1)
-- Durable Object: one per QA run, holds in-flight state, powers a live dashboard
-- R2: uploaded deliverables (docx/pdf/pptx)
-- D1: merged findings storage
-- Parsing: mammoth (docx), jszip (pptx), unpdf or pdfjs-dist (pdf)
-- Config: YAML checklists/style rules as static assets, parsed with js-yaml
-- Dashboard: Astro + Chart.js on Cloudflare Pages
+- Orchestrator: LangGraph graph, fans out to 4 specialist agent nodes in parallel
+  (async nodes + AsyncAnthropicBedrock client)
+- LLM backbone: Claude via Amazon Bedrock (AsyncAnthropicBedrock, model
+  global.anthropic.claude-sonnet-5) — the team's Bedrock IAM policy denies
+  Opus/Fable and Sonnet needs the `global.` cross-region inference-profile
+  prefix, so verify against the actual account before assuming a plain
+  ANTHROPIC_API_KEY or a different model ID will work
+- Parsing: python-docx (docx), python-pptx (pptx), PyMuPDF (pdf)
+- Config: YAML checklists/style rules, parsed with PyYAML
+- Prompts: the 5 system prompts live as versioned .md files under prompts/,
+  loaded at runtime — not hardcoded in source
+- Dashboard: single-page HTML + Chart.js, reads a local findings.json (no backend
+  needed — serve with `python -m http.server` from dashboard/ to view)
+- Structured output: this Bedrock route doesn't support output_config.format
+  or strict tool schemas, and a $ref/$defs Pydantic schema makes the model
+  unreliably stringify nested fields. Use forced tool-use (tool_choice) with
+  a $ref-inlined flat schema, plus a small JSON-repair step for the residual
+  cases — see agents/schema.py for the working pattern before reimplementing.
 
 Scaffold now:
-1. bun create cloudflare@latest . (Worker, TS)
-2. wrangler.toml with R2 bucket, D1 database, and Durable Object bindings
-   (use existing: deliverableqa-uploads / deliverableqa-findings)
-3. src/orchestrator/ — parse.ts, dispatch.ts, merge.ts
-4. src/agents/ — one .ts file per agent from CONTEXT.md's prompts, each calling
-   the shared JSON finding schema
-5. dashboard/ — Astro app, Pages-deployable, renders merged findings
-6. Commit scaffold, then run `wrangler deploy --dry-run` to confirm bindings
-   resolve before first real deploy
+1. Python venv + requirements.txt (langgraph, anthropic[bedrock], boto3,
+   python-docx, python-pptx, pymupdf, pyyaml)
+2. orchestrator/ — parse.py, dispatch.py, merge.py
+3. agents/ — one .py file per agent from CONTEXT.md's prompts, each calling the
+   shared JSON finding schema via a forced tool-use call
+4. config/checklists/*.yaml and config/style_rules.yaml
+5. dashboard/ — single-page HTML + Chart.js, reads local findings.json
+6. Commit scaffold once it runs end-to-end on a sample doc
 
-Ask me before provisioning any new Cloudflare resources beyond the two already
-created. Otherwise proceed autonomously through the scaffold.
+Ask me before adding any dependency beyond the ones listed above. Otherwise proceed
+autonomously through the scaffold.
 ```
 
 ## When to give deployment/environment setup

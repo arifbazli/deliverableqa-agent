@@ -1,0 +1,18 @@
+engagement_type: advisory
+required_sections:
+  - name: Executive Summary
+    expectation: One-page synthesis of key findings and the primary recommendation, written for a client sponsor who has not read the rest of the document.
+  - name: Background and Objectives
+    expectation: States the client's starting problem and the specific objectives this engagement was scoped to address.
+  - name: Approach and Methodology
+    expectation: Describes how the analysis was conducted (data sources, frameworks, interviews) in enough detail that a reader could assess its rigor.
+  - name: Findings and Analysis
+    expectation: The substantive body — data, analysis, and interpretation supporting the recommendations.
+  - name: Recommendations
+    expectation: Specific, actionable recommendations, each with an owner and a timeframe where applicable.
+  - name: Risks and Mitigations
+    expectation: Named risks to the recommended path, each paired with a concrete mitigation — not a single generic sentence.
+  - name: Next Steps
+    expectation: Immediate next actions and decision points for the client.
+required_exhibits:
+  - Appendix with supporting data tables referenced in the body

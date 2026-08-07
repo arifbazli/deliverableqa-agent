@@ -1,0 +1,34 @@
+fonts:
+  body:
+    family: Open Sans
+    min_size_pt: 10
+  headers:
+    family: Open Sans
+    min_size_pt: 14
+  footnotes:
+    family: Open Sans
+    min_size_pt: 8
+
+colours:
+  primary: "#86BC25"
+  secondary: "#000000"
+  accent: "#00A3E0"
+  text: "#43464A"
+
+disclaimers:
+  confidentiality_notice:
+    required: true
+    text_contains: "confidential"
+  engagement_scope_disclaimer:
+    required: true
+  trademark_usage:
+    required: true
+    rule: "Deloitte name/logo must not be used to imply endorsement beyond the scope of this engagement."
+
+heading_hierarchy:
+  rule: "H1 must be visually larger than H2, which must be larger than H3. Numbering scheme must be consistent throughout (all-numeric or all-named, not mixed)."
+
+slide_layout:
+  logo_placement: "top-right of every slide except the title slide"
+  footer: "page/slide number required on every slide except the title slide"
+  title_slide_format: "must include engagement title, client name, and date"

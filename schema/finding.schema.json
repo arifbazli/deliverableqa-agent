@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DeliverableQA Finding",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": ["consistency", "brand_format", "language_tone", "structure"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "unique per agent run" },
+          "location": {
+            "type": "object",
+            "properties": {
+              "page": { "type": ["integer", "null"] },
+              "section": { "type": "string" }
+            },
+            "required": ["page", "section"]
+          },
+          "severity": { "type": "string", "enum": ["critical", "warning", "suggestion"] },
+          "category": { "type": "string" },
+          "description": { "type": "string" },
+          "evidence": { "type": "string" },
+          "proposed_fix": { "type": "string" },
+          "merged_from": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "present only on findings the orchestrator's merge step deduplicated against another agent's finding"
+          }
+        },
+        "required": ["id", "location", "severity", "category", "description", "evidence", "proposed_fix"]
+      }
+    }
+  },
+  "required": ["agent", "findings"]
+}

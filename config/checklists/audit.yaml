@@ -1,0 +1,18 @@
+engagement_type: audit
+required_sections:
+  - name: Executive Summary
+    expectation: Summary of audit scope, overall opinion, and headline findings.
+  - name: Audit Scope and Objectives
+    expectation: Precisely defines what was and was not in scope for this audit.
+  - name: Methodology
+    expectation: Describes the audit methodology, standards followed, and sampling approach in enough detail to be defensible under review.
+  - name: Findings
+    expectation: Each finding stated with the control tested, the result, and the evidence basis.
+  - name: Risk Ratings
+    expectation: Each finding assigned a risk rating using the engagement's defined scale.
+  - name: Recommendations
+    expectation: Corrective actions mapped one-to-one against findings.
+  - name: Management Response
+    expectation: Space for client management's response to each finding, even if placeholder text pending sign-off.
+required_exhibits:
+  - Appendix with control testing evidence or sample lists
