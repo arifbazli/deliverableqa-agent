@@ -2,9 +2,9 @@
 
 > Multi-agent quality gate for consulting deliverables — catches inconsistencies, brand/format violations, tone issues, and structural gaps before a document reaches the client.
 
-[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-f38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/Bun-000000?logo=bun&logoColor=white)](https://bun.sh/)
+[![Python](https://img.shields.io/badge/Python-3.14-3776ab?logo=python&logoColor=white)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1c3c3c)](https://github.com/langchain-ai/langgraph)
+[![Claude on Bedrock](https://img.shields.io/badge/Claude-Amazon%20Bedrock-D97757)](https://aws.amazon.com/bedrock/)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#)
 
 Built for the Deloitte Agentathon by a 4-person team. Full build spec, agent prompts, and schema live in [`CONTEXT.md`](./CONTEXT.md).
@@ -17,89 +17,115 @@ Every engagement ends the same way: a last-minute scramble to QA a 30–80 page 
 
 ## The solution
 
-An orchestrator dispatches a draft deliverable to four specialist review agents in parallel, merges and ranks their findings by severity, and renders a QA report before a human ever opens the document.
+An orchestrator parses a draft deliverable and dispatches it to four specialist review agents in parallel, merges and ranks their findings by severity, and renders a QA report before a human ever opens the document.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    A["Draft deliverable<br/>Word / PDF / PPTX + engagement type"] --> B
+    DOC["Draft deliverable<br/>Word / PDF / PowerPoint + engagement type"]
 
-    B["Orchestrator<br/>parse & dispatch"] --> C1
-    B --> C2
-    B --> C3
-    B --> C4
+    DOC --> PARSE["Parse<br/>extract text, split into section-tagged content"]
 
-    subgraph agents [" Specialist agents — run in parallel "]
+    PARSE --> CONS
+    PARSE --> BRAND
+    PARSE --> TONE
+    PARSE --> STRUCT
+
+    subgraph review [" 4 specialist agents — Claude on Bedrock, run concurrently "]
         direction LR
-        C1["Consistency<br/>numbers, dates, claims"]
-        C2["Brand / Format<br/>fonts, colours, disclaimers"]
-        C3["Language / Tone<br/>clarity, unsubstantiated claims"]
-        C4["Structure<br/>required sections"]
+        CONS["Consistency<br/>contradicting numbers, dates, claims"]
+        BRAND["Brand & Format<br/>fonts, colours, required disclaimers"]
+        TONE["Language & Tone<br/>vague claims, passive voice"]
+        STRUCT["Structure<br/>missing or underdeveloped sections"]
     end
 
-    C1 --> D
-    C2 --> D
-    C3 --> D
-    C4 --> D
+    CONS --> MERGE
+    BRAND --> MERGE
+    TONE --> MERGE
+    STRUCT --> MERGE
 
-    D["Orchestrator<br/>merge, dedupe & rank"] --> E
-    E["QA report<br/>dashboard + detailed findings"] --> F
-    F["Human review<br/>apply fixes"] -.->|re-run after fixes| A
+    MERGE["Merge & rank<br/>dedupe overlaps, sort by severity<br/>— plain Python, no LLM"] --> REPORT
 
-    classDef input fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
-    classDef control fill:#ede9fe,stroke:#7c3aed,color:#4c1d95,font-size:14px
-    classDef agent fill:#ccfbf1,stroke:#0d9488,color:#134e4a,font-size:14px
-    classDef output fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
+    REPORT["QA report<br/>dashboard + full findings list"]
 
-    class A input
-    class B,D control
-    class C1,C2,C3,C4 agent
-    class E,F output
+    classDef ioStyle fill:#f4f4f5,stroke:#a1a1aa,color:#18181b,font-size:14px
+    classDef pythonStep fill:#fef3c7,stroke:#d97706,color:#78350f,font-size:14px
+    classDef agentStyle fill:#ccfbf1,stroke:#0d9488,color:#134e4a,font-size:14px
+
+    class DOC,REPORT ioStyle
+    class PARSE,MERGE pythonStep
+    class CONS,BRAND,TONE,STRUCT agentStyle
 ```
 
-## Tech stack — proposal vs. actual
+Amber = deterministic Python, no LLM call (parse and merge). Teal = the only 4 steps that actually call an LLM (the specialist agents). This distinction matters: `CONTEXT.md`'s original design specifies an LLM-driven orchestrator for both parse and merge, but the code that exists today does both in plain Python — see [Status](#status).
 
-The original proposal specified a local-only Python stack (see full doc for context). The
-team pivoted to Cloudflare for a deployable, shareable demo instead of a laptop-only run.
-Same architecture, same 4-agent decomposition — only the runtime changed.
+## Tech stack
 
-| Layer | Original proposal | Actual implementation |
-|---|---|---|
-| Orchestration | Python + LangGraph | Cloudflare Workers, TypeScript, `Promise.all()` fan-out |
-| LLM backbone | GPT-4o / Claude via API | Same, configurable via `LLM_PROVIDER` |
-| Parsing | python-docx, python-pptx, PyMuPDF | `mammoth` (docx), `jszip` (pptx), `unpdf`/`pdfjs-dist` (pdf) |
-| Style/checklist rules | YAML config | YAML config, unchanged (`js-yaml`) |
-| File storage | Local filesystem | Cloudflare R2 |
-| Findings storage | Local JSON | Cloudflare D1 |
-| Run state | N/A (single local process) | Durable Objects (one per QA run) |
-| Dashboard | Static HTML + Chart.js | Astro + Chart.js on Cloudflare Pages |
-| Deployment | None — local only | Wrangler CLI → Workers + Pages |
+Local-only Python + LangGraph, per the original project proposal — no cloud deployment, everything in this table is installed and running today.
 
-> **Data-handling note:** the original proposal's "no client data leaves the machine" only
-> holds for the local-only version. Cloudflare deployment means data transits the edge and
-> the LLM API — use synthetic/sanitized deliverables for the demo (see proposal discussion Q4).
-| LLM backbone | `LLM_PROVIDER` env var — `claude` \| `openai` \| `ollama` \| `workers-ai`, swappable without a rewrite |
+| Layer | What's actually used |
+|---|---|
+| Orchestration runtime | Python 3.14 |
+| Agent fan-out | LangGraph 1.2 — `StateGraph` with one node per specialist agent, run in parallel |
+| LLM backbone | Claude via **Amazon Bedrock** (`anthropic[bedrock]` 0.120, `AsyncAnthropicBedrock`), model `global.anthropic.claude-sonnet-5` — not a plain `ANTHROPIC_API_KEY` call; see the note below |
+| AWS SDK | boto3 1.43 |
+| Document parsing | `python-docx` 1.2 (docx), `python-pptx` 1.0 (pptx), `PyMuPDF` 1.28 (pdf) |
+| Config | YAML checklists + style rules, parsed with PyYAML 6.0 |
+| Findings storage | Local JSON (`output/findings.json`) |
+| Dashboard | Single-page HTML + Chart.js (CDN), no build step |
+| Deployment | None — runs locally, no client data leaves the machine |
 
-> See [`CONTEXT.md`](./CONTEXT.md#proposal-doc-actual-implementation) for how this maps back to the original proposal's stack (Python/LangGraph → TypeScript/Workers).
+> **Why Bedrock, and why forced tool-use instead of structured outputs:** this team's Bedrock IAM policy denies Opus/Fable, and Sonnet needs the `global.` cross-region inference-profile prefix to resolve at all. On top of that, this Bedrock route doesn't support `output_config.format` or `strict` tool schemas, and a `$ref`/`$defs`-based Pydantic schema made `claude-sonnet-5` unreliably stringify nested fields instead of emitting real JSON (~90% failure rate in testing). `agents/schema.py` works around both: forced `tool_choice` against a `$ref`-inlined flat schema, plus a small JSON-repair step for the residual stringified-field cases.
 
 ## Repo structure
 
 ```
 deliverableqa-agent/
-├── .agents/skills/deliverableqa-kickoff/  # kickoff skill (Pi discovery)
-├── .claude/skills/deliverableqa-kickoff/  # kickoff skill (Claude Code discovery)
-├── src/
-│   ├── orchestrator/       # parse.ts, dispatch.ts, merge.ts
-│   └── agents/              # consistency.ts, brand_format.ts, language_tone.ts, structure.ts
-├── config/
-│   ├── checklists/          # advisory.yaml, audit.yaml, tax.yaml, consulting.yaml
-│   └── style_rules.yaml
-├── dashboard/                # Astro app → Cloudflare Pages
-├── samples/                  # planted-error test deliverables
-├── schema/finding.schema.json
-├── CONTEXT.md                 # full build spec + 5 agent system prompts
-└── wrangler.toml
+├── run_qa.py                     # CLI entry point: parse → dispatch → merge → report
+├── requirements.txt
+├── CONTEXT.md                    # full build spec: architecture, all 5 system prompts, schema
+│
+├── orchestrator/                 # non-agent plumbing
+│   ├── parse.py                  # docx/pptx/pdf -> list[Section] (text + page/slide number)
+│   ├── dispatch.py               # LangGraph graph: fans the 4 agents out, runs them concurrently
+│   └── merge.py                  # dedup + severity sort + dashboard shaping — plain Python, no LLM
+│
+├── agents/                       # one Claude call per specialist, all sharing one schema
+│   ├── schema.py                 # Pydantic models + the Bedrock call wrapper (forced tool-use,
+│   │                             #   $ref-inlined schema, JSON-repair — see Tech stack above)
+│   ├── consistency.py
+│   ├── brand_format.py
+│   ├── language_tone.py
+│   └── structure.py
+│
+├── prompts/                      # the 5 system prompts, versioned as .md, loaded at runtime
+│   ├── consistency.md
+│   ├── brand_format.md
+│   ├── language_tone.md
+│   ├── structure.md
+│   └── orchestrator.md           # written but unused — merge.py does this step in plain Python (see Status)
+│
+├── config/                       # per-engagement-type rules, editable without touching code
+│   ├── checklists/
+│   │   ├── advisory.yaml
+│   │   ├── audit.yaml
+│   │   ├── tax.yaml
+│   │   └── consulting.yaml
+│   └── style_rules.yaml          # fonts, colours, required disclaimers
+│
+├── schema/
+│   └── finding.schema.json       # the shared finding shape as plain JSON Schema
+│
+├── dashboard/
+│   └── index.html                # single-page report, reads findings.json, no build step
+│
+├── samples/
+│   ├── generate_sample.py        # builds a sample deliverable with 3 planted errors
+│   └── advisory_sample.docx
+│
+├── .agents/skills/deliverableqa-kickoff/   # kickoff skill, discovered by Pi
+└── .claude/skills/deliverableqa-kickoff/   # kickoff skill, discovered by Claude Code (identical copy)
 ```
 
 ## Findings schema
@@ -127,22 +153,50 @@ Every agent returns findings in one shared shape:
 
 ## Getting started
 
+Requires Python 3.14 and AWS credentials for a Bedrock account with access to `global.anthropic.claude-sonnet-5` (see the tech stack note above — Opus/Fable and non-`global.` model IDs are not guaranteed to work on every account).
+
 ```bash
 git clone https://github.com/arifbazli/deliverableqa-agent.git
 cd deliverableqa-agent
 
-bun install
-wrangler login
+python -m venv .venv
+.venv\Scripts\activate        # Windows — use `source .venv/bin/activate` on macOS/Linux
+pip install -r requirements.txt
 
-# provision Cloudflare resources (first time only)
-wrangler r2 bucket create deliverableqa-uploads
-wrangler d1 create deliverableqa-findings
-wrangler pages project create deliverableqa-dashboard
+# AWS credentials must be resolvable via the standard boto3 chain
+# (env vars, ~/.aws/credentials, or an active AWS SSO/profile session)
 
-# deploy
-wrangler deploy
-wrangler pages deploy dashboard/dist --project-name=deliverableqa-dashboard
+# generate a sample deliverable with 3 planted errors (optional — one is committed already)
+python samples/generate_sample.py
+
+# run the pipeline
+python run_qa.py samples/advisory_sample.docx --engagement-type advisory
 ```
+
+This writes `output/findings.json`. Engagement type is one of `advisory`, `audit`, `tax`, `consulting` — each maps to its own checklist under `config/checklists/`. To view the report:
+
+```bash
+cp output/findings.json dashboard/findings.json    # dashboard fetches this relative to itself
+python -m http.server 8000 --directory dashboard
+# open http://localhost:8000
+```
+
+## Status
+
+**Built and verified end-to-end:**
+- Document parsing for docx/pptx/pdf into section-tagged text
+- All 4 specialist agents, calling Claude on Bedrock via forced tool-use, each producing schema-conformant findings
+- LangGraph fan-out/fan-in across all 4 agents
+- Deterministic merge: cross-agent dedup (`difflib` similarity on same-location findings), severity sort, dashboard aggregation
+- Single-page dashboard (light/dark, grouped and table views) rendering real pipeline output
+- CLI entry point (`run_qa.py`), tested against a fresh venv end-to-end
+
+**Not yet built:**
+- The orchestrator's merge/rank step is plain Python, not an LLM call — `prompts/orchestrator.md` is written but unused. The original design in `CONTEXT.md` describes an LLM-driven orchestrator phase for merge/report; the deterministic version was faster to ship and has been sufficient so far, but semantic dedup edge cases (same underlying error, worded very differently by two agents) may need it.
+- No automated test suite — verification so far is manual, run against one sample deliverable (`samples/advisory_sample.docx`, advisory engagement type) with 3 planted errors
+- Only one sample deliverable exists; `audit`, `tax`, and `consulting` checklists are written but untested against a real document
+- No re-run/delta mode (comparing a QA pass against a prior one after fixes are applied) — `CONTEXT.md`'s orchestrator spec calls for this, not implemented
+- No handling for documents that don't map cleanly to the section-per-heading assumption `parse.py` makes (e.g. decks with no text-frame titles, scanned PDFs)
 
 ## Agent skill (Pi + Claude Code)
 
@@ -155,26 +209,4 @@ The project context, agent prompts, and deployment setup are packaged as a reusa
 
 Both are identical copies (`SKILL.md`, `assets/CONTEXT.md`, `references/deployment-setup.md`). There's no symlink between them — if the skill content changes, update both paths in the same commit to keep them in sync.
 
-Full environment setup for WSL Debian is in [`deployment-setup.md`](./.agents/skills/deliverableqa-kickoff/references/deployment-setup.md).
-
-> This repo is being built incrementally with **Claude Code**, working through `CONTEXT.md` step by step (scaffold → one agent → orchestrator wiring → remaining agents → merge logic → dashboard) rather than one large autonomous generation.
-
-## Roadmap
-
-| Week | Milestone |
-|---|---|
-| 1 | Repo, parser, orchestrator skeleton, first draft of all agent prompts |
-| 2 | All 4 agents producing findings on test docs, YAML checklists drafted |
-| 3 | Merge logic, dedup, severity scoring, dashboard v1 |
-| 4 | End-to-end runs on 3+ sample deliverables, prompt tuning |
-| 5 | Demo recording, write-up, handover pack |
-
-## Team
-
-| Workstream | Owner |
-|---|---|
-| Orchestrator & pipeline | — |
-| Consistency + Structure agents | — |
-| Brand/Format + Language/Tone agents | — |
-| Dashboard, demo & handover | — |
-
+> This repo is being built incrementally with **Claude Code**, working through `CONTEXT.md` step by step rather than one large autonomous generation.
