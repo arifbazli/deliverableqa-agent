@@ -6,6 +6,7 @@ from pathlib import Path
 from anthropic import AsyncAnthropicBedrock
 
 from orchestrator.dispatch import run_agents
+from orchestrator.llm_merge import llm_merge_and_report
 from orchestrator.merge import compute_delta, merge_and_report
 from orchestrator.parse import parse_document, render_document_context
 
@@ -30,6 +31,7 @@ async def run(
     engagement_type: str,
     output_dir: Path,
     previous_report: dict | None = None,
+    use_llm_merge: bool = False,
 ) -> dict:
     sections = parse_document(document_path)
     checklist_yaml = load_checklist(engagement_type)
@@ -38,7 +40,10 @@ async def run(
 
     client = AsyncAnthropicBedrock()
     agent_findings = await run_agents(client, document_context)
-    result = merge_and_report(agent_findings)
+    if use_llm_merge:
+        result = await llm_merge_and_report(client, agent_findings)
+    else:
+        result = merge_and_report(agent_findings)
 
     if previous_report is not None:
         result["delta"] = compute_delta(previous_report, result)
@@ -71,6 +76,14 @@ def main() -> None:
         help="Path to a prior findings.json for the same document — adds a 'delta' "
              "section (resolved/still_open/new) comparing this run against it",
     )
+    parser.add_argument(
+        "--llm-merge",
+        action="store_true",
+        help="Use an LLM call (prompts/orchestrator.md) to merge/dedupe findings instead "
+             "of the default deterministic merge — catches semantic duplicates worded very "
+             "differently across agents, at the cost of one extra Bedrock call. Falls back "
+             "to the deterministic merge automatically if the LLM call fails.",
+    )
     args = parser.parse_args()
 
     if not args.document.exists():
@@ -82,7 +95,7 @@ def main() -> None:
             raise SystemExit(f"--previous-findings file not found: {args.previous_findings}")
         previous_report = json.loads(args.previous_findings.read_text(encoding="utf-8"))
 
-    result = asyncio.run(run(args.document, args.engagement_type, args.output_dir, previous_report))
+    result = asyncio.run(run(args.document, args.engagement_type, args.output_dir, previous_report, args.llm_merge))
     dashboard = result["dashboard"]
     print(f"Pass/fail: {dashboard['pass_fail']}")
     print(f"Total findings: {dashboard['total_findings']} ({dashboard['counts_by_severity']})")
