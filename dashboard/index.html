@@ -460,6 +460,29 @@
     elapsedInterval = null;
   }
 
+  const JOB_POLL_INTERVAL_MS = 2000;
+  const JOB_POLL_TIMEOUT_MS = 10 * 60 * 1000; // generous ceiling well past the ~30-120s typical run
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function pollJob(jobId) {
+    const deadline = Date.now() + JOB_POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const res = await fetch(`/api/jobs/${jobId}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error((body && body.detail) || `Server returned HTTP ${res.status} while checking job status`);
+      }
+      const job = await res.json();
+      if (job.status === "done") return job.result;
+      if (job.status === "error") throw new Error(job.error || "Analysis failed with no further detail.");
+      await sleep(JOB_POLL_INTERVAL_MS);
+    }
+    throw new Error("Timed out waiting for analysis to finish.");
+  }
+
   analyzeButton.addEventListener("click", async () => {
     if (!selectedFile) return;
     clearUploadError();
@@ -480,9 +503,10 @@
         const detail = (body && body.detail) || `Server returned HTTP ${res.status}`;
         throw new Error(detail);
       }
+      const result = await pollJob(body.job_id);
       stopElapsedTimer();
       showScreen("results");
-      renderResults(body, selectedFile.name, selectedEngagementType());
+      renderResults(result, selectedFile.name, selectedEngagementType());
     } catch (err) {
       stopElapsedTimer();
       showScreen("upload");
