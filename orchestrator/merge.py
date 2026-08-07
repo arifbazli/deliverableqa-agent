@@ -7,6 +7,13 @@ SEVERITY_RANK = {"critical": 0, "warning": 1, "suggestion": 2}
 # (they're looking at the same document at the same time) — 0.6 keeps distinct
 # same-location findings from merging while still catching true overlaps.
 DUPLICATE_OVERLAP_THRESHOLD = 0.6
+# Across two independent runs, the same underlying finding is reworded more than
+# within a single run (fresh LLM sampling each time) — lower bar to still catch it.
+# Verified against real two-pass output: catches near-misses like a "significantly
+# improved" wording that scored 0.49 across runs. Findings whose location AND
+# wording both drift heavily between runs (rare) will still show as resolved+new
+# rather than still_open — a known limitation, not something this threshold fixes.
+DELTA_OVERLAP_THRESHOLD = 0.45
 
 
 def _same_location(a: Finding, b: Finding) -> bool:
@@ -95,4 +102,55 @@ def merge_and_report(agent_findings: list[AgentFindings]) -> dict:
     return {
         "dashboard": build_dashboard(sorted_findings, agent_findings),
         "detailed_report": build_detailed_report(sorted_findings),
+    }
+
+
+def _flatten_report_findings(report: dict) -> list[Finding]:
+    sections = report.get("detailed_report", {}).get("sections", {})
+    return [Finding.model_validate(f) for findings in sections.values() for f in findings]
+
+
+def compute_delta(previous_report: dict, current_report: dict) -> dict:
+    """Compare two merge_and_report() outputs for the same document across re-runs.
+
+    Matches findings by location + description similarity, the same signal dedupe()
+    uses within a single run — a re-run generates fresh finding ids, so matching by
+    id would never work. Uses DELTA_OVERLAP_THRESHOLD rather than dedupe()'s
+    DUPLICATE_OVERLAP_THRESHOLD since cross-run rewording is heavier than
+    within-run rewording (see the threshold's own comment for why, and its limits).
+    """
+    previous = _flatten_report_findings(previous_report)
+    current = _flatten_report_findings(current_report)
+    matched_current_indices: set[int] = set()
+
+    still_open: list[Finding] = []
+    resolved: list[Finding] = []
+
+    for prev_finding in previous:
+        match_index = None
+        for i, curr_finding in enumerate(current):
+            if i in matched_current_indices:
+                continue
+            if _same_location(prev_finding, curr_finding) and (
+                _text_overlap(prev_finding.description, curr_finding.description) > DELTA_OVERLAP_THRESHOLD
+            ):
+                match_index = i
+                break
+        if match_index is not None:
+            matched_current_indices.add(match_index)
+            still_open.append(current[match_index])
+        else:
+            resolved.append(prev_finding)
+
+    new_findings = [f for i, f in enumerate(current) if i not in matched_current_indices]
+
+    return {
+        "resolved": [f.model_dump() for f in resolved],
+        "still_open": [f.model_dump() for f in still_open],
+        "new": [f.model_dump() for f in new_findings],
+        "counts": {
+            "resolved": len(resolved),
+            "still_open": len(still_open),
+            "new": len(new_findings),
+        },
     }

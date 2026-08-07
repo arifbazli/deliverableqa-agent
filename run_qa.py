@@ -6,7 +6,7 @@ from pathlib import Path
 from anthropic import AsyncAnthropicBedrock
 
 from orchestrator.dispatch import run_agents
-from orchestrator.merge import merge_and_report
+from orchestrator.merge import compute_delta, merge_and_report
 from orchestrator.parse import parse_document, render_document_context
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -25,7 +25,12 @@ def load_style_rules() -> str:
     return (CONFIG_DIR / "style_rules.yaml").read_text(encoding="utf-8")
 
 
-async def run(document_path: Path, engagement_type: str, output_dir: Path) -> dict:
+async def run(
+    document_path: Path,
+    engagement_type: str,
+    output_dir: Path,
+    previous_report: dict | None = None,
+) -> dict:
     sections = parse_document(document_path)
     checklist_yaml = load_checklist(engagement_type)
     style_rules_yaml = load_style_rules()
@@ -34,6 +39,9 @@ async def run(document_path: Path, engagement_type: str, output_dir: Path) -> di
     client = AsyncAnthropicBedrock()
     agent_findings = await run_agents(client, document_context)
     result = merge_and_report(agent_findings)
+
+    if previous_report is not None:
+        result["delta"] = compute_delta(previous_report, result)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "findings.json"
@@ -56,15 +64,31 @@ def main() -> None:
         default=REPO_ROOT / "output",
         help="Directory to write findings.json into (default: ./output)",
     )
+    parser.add_argument(
+        "--previous-findings",
+        type=Path,
+        default=None,
+        help="Path to a prior findings.json for the same document — adds a 'delta' "
+             "section (resolved/still_open/new) comparing this run against it",
+    )
     args = parser.parse_args()
 
     if not args.document.exists():
         raise SystemExit(f"Document not found: {args.document}")
 
-    result = asyncio.run(run(args.document, args.engagement_type, args.output_dir))
+    previous_report = None
+    if args.previous_findings is not None:
+        if not args.previous_findings.exists():
+            raise SystemExit(f"--previous-findings file not found: {args.previous_findings}")
+        previous_report = json.loads(args.previous_findings.read_text(encoding="utf-8"))
+
+    result = asyncio.run(run(args.document, args.engagement_type, args.output_dir, previous_report))
     dashboard = result["dashboard"]
     print(f"Pass/fail: {dashboard['pass_fail']}")
     print(f"Total findings: {dashboard['total_findings']} ({dashboard['counts_by_severity']})")
+    if "delta" in result:
+        counts = result["delta"]["counts"]
+        print(f"Delta vs previous run: {counts['resolved']} resolved, {counts['still_open']} still open, {counts['new']} new")
     print(f"Written to: {args.output_dir / 'findings.json'}")
 
 
