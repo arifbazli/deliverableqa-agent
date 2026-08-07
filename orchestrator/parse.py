@@ -6,6 +6,14 @@ import pptx
 import pymupdf
 
 
+class DocumentParseError(ValueError):
+    """Raised when a document can't be parsed or has no extractable text.
+
+    Always safe to show the message directly to an end user (e.g. in the
+    web UI's error banner) — it never leaks a library traceback.
+    """
+
+
 @dataclass
 class Section:
     section: str
@@ -14,7 +22,11 @@ class Section:
 
 
 def parse_docx(path: Path) -> list[Section]:
-    document = docx.Document(str(path))
+    try:
+        document = docx.Document(str(path))
+    except Exception as e:
+        raise DocumentParseError(f"Could not open this file as a Word document: {e}") from e
+
     sections: list[Section] = []
     current_heading = "Document"
     buffer: list[str] = []
@@ -37,7 +49,11 @@ def parse_docx(path: Path) -> list[Section]:
 
 
 def parse_pptx(path: Path) -> list[Section]:
-    presentation = pptx.Presentation(str(path))
+    try:
+        presentation = pptx.Presentation(str(path))
+    except Exception as e:
+        raise DocumentParseError(f"Could not open this file as a PowerPoint deck: {e}") from e
+
     sections: list[Section] = []
     for index, slide in enumerate(presentation.slides, start=1):
         texts = [
@@ -49,12 +65,19 @@ def parse_pptx(path: Path) -> list[Section]:
             title = texts[0]
             body = "\n".join(texts)
             sections.append(Section(section=f"Slide {index}: {title}", page=index, text=body))
+        else:
+            sections.append(Section(section=f"Slide {index}", page=index, text="(no text content on this slide)"))
     return sections
 
 
 def parse_pdf(path: Path) -> list[Section]:
+    try:
+        document = pymupdf.open(str(path))
+    except Exception as e:
+        raise DocumentParseError(f"Could not open this file as a PDF: {e}") from e
+
     sections: list[Section] = []
-    with pymupdf.open(str(path)) as document:
+    with document:
         for page_number, page in enumerate(document, start=1):
             text = page.get_text().strip()
             if text:
@@ -65,12 +88,20 @@ def parse_pdf(path: Path) -> list[Section]:
 def parse_document(path: Path) -> list[Section]:
     suffix = path.suffix.lower()
     if suffix == ".docx":
-        return parse_docx(path)
-    if suffix == ".pptx":
-        return parse_pptx(path)
-    if suffix == ".pdf":
-        return parse_pdf(path)
-    raise ValueError(f"Unsupported file type: {suffix}")
+        sections = parse_docx(path)
+    elif suffix == ".pptx":
+        sections = parse_pptx(path)
+    elif suffix == ".pdf":
+        sections = parse_pdf(path)
+    else:
+        raise DocumentParseError(f"Unsupported file type {suffix!r} — expected .docx, .pptx, or .pdf")
+
+    if not sections:
+        raise DocumentParseError(
+            "No readable text was found in this document. If it's a scanned PDF or an "
+            "image-based deck, this pipeline can't extract text from it (OCR isn't supported)."
+        )
+    return sections
 
 
 def render_document_context(sections: list[Section], engagement_type: str, checklist_yaml: str, style_rules_yaml: str) -> str:
