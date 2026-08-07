@@ -42,29 +42,57 @@ Stack mapping:
   loaded at runtime — not hardcoded in source
 - Dashboard: single-page HTML app with an upload -> processing -> results flow
   (drag-and-drop a deliverable, watch it process, see the report) + Chart.js.
-  Served by server.py (FastAPI + uvicorn), which also exposes POST /api/analyze
-  and calls the exact same orchestrator/agents functions as run_qa.py — don't
-  fork the pipeline logic for the web path.
+  The processing screen polls, it doesn't block on one long request.
+- Server: server.py (FastAPI + uvicorn). POST /api/analyze returns a job_id
+  immediately (HTTP 200, {"status": "processing"}) and runs the pipeline as a
+  background asyncio task; GET /api/jobs/{job_id} is polled for status/result.
+  This is what makes concurrent uploads work — don't make /api/analyze block
+  until the pipeline finishes. Calls the exact same orchestrator/agents
+  functions as run_qa.py — don't fork the pipeline logic for the web path.
+- Auth: optional, opt-in via DELIVERABLEQA_TOKEN env var (see auth.py). Unset
+  means no auth at all (the default for local single-user use); set it and
+  every /api/* request needs Authorization: Bearer <token>. Never make auth
+  mandatory — that breaks the zero-friction local default.
+- Merge strategy: default is deterministic (orchestrator/merge.py, difflib
+  similarity + location match, no LLM call). Optional LLM-driven merge
+  (orchestrator/llm_merge.py, --llm-merge on the CLI or llm_merge=true on
+  /api/analyze) calls Claude with prompts/orchestrator.md's PHASE 2
+  instructions to catch semantic duplicates worded very differently across
+  agents — it MUST fall back to the deterministic merge on any failure
+  (API error, malformed response, validation failure), never raise.
+- Delta/re-run mode: orchestrator/merge.py's compute_delta() compares two
+  runs' findings (matched by location + description similarity — re-runs get
+  fresh finding ids, matching by id never works) into resolved/still_open/new.
+  Wired via run_qa.py --previous-findings <path> and the previous_findings
+  upload field on /api/analyze.
 - Structured output: this Bedrock route doesn't support output_config.format
   or strict tool schemas, and a $ref/$defs Pydantic schema makes the model
   unreliably stringify nested fields. Use forced tool-use (tool_choice) with
   a $ref-inlined flat schema, plus a small JSON-repair step for the residual
-  cases — see agents/schema.py for the working pattern before reimplementing.
+  cases — see agents/schema.py for the working pattern before reimplementing
+  (llm_merge.py reuses the same pattern for its own schema).
 
 Scaffold now:
 1. Python venv + requirements.txt (langgraph, anthropic[bedrock], boto3,
    python-docx, python-pptx, pymupdf, pyyaml, fastapi, uvicorn[standard],
-   python-multipart)
-2. orchestrator/ — parse.py, dispatch.py, merge.py
+   python-multipart, pytest, pytest-asyncio)
+2. orchestrator/ — parse.py (raise a clear error on empty/corrupt input,
+   don't return an empty section list silently), dispatch.py, merge.py
+   (dedup + compute_delta), llm_merge.py (opt-in, falls back to merge.py)
 3. agents/ — one .py file per agent from CONTEXT.md's prompts, each calling the
    shared JSON finding schema via a forced tool-use call
 4. config/checklists/*.yaml and config/style_rules.yaml
-5. dashboard/ — single-page HTML app (upload/processing/results states) + Chart.js
-6. server.py — FastAPI app, POST /api/analyze (upload -> run the pipeline ->
-   return JSON), serves dashboard/ as static root; run_qa.py stays as the CLI
-   entry point, both call the same run() function
-7. Commit scaffold once it runs end-to-end on a sample doc, via both the CLI
-   and a browser upload
+5. dashboard/ — single-page HTML app (upload/processing/results states),
+   processing screen polls GET /api/jobs/{id} rather than blocking + Chart.js
+6. server.py — FastAPI app, job-queue POST /api/analyze + GET /api/jobs/{id},
+   serves dashboard/ as static root; run_qa.py stays as the CLI entry point,
+   both call the same run() function
+7. auth.py — optional bearer-token check, opt-in via DELIVERABLEQA_TOKEN
+8. tests/ — pytest suite covering parse.py edge cases, merge.py dedup/delta,
+   the JSON-repair logic, and server.py's job lifecycle + auth — mock the
+   Bedrock client throughout, no live API calls in the test suite
+9. Commit scaffold once it runs end-to-end on a sample doc, via both the CLI
+   and a browser upload, with the test suite green
 
 Ask me before adding any dependency beyond the ones listed above. Otherwise proceed
 autonomously through the scaffold.
