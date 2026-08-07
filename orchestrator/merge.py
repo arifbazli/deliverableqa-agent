@@ -3,6 +3,9 @@ from difflib import SequenceMatcher
 from agents.schema import AgentFindings, Finding
 
 SEVERITY_RANK = {"critical": 0, "warning": 1, "suggestion": 2}
+# Within one run, agents describe the same real issue in noticeably similar language
+# (they're looking at the same document at the same time) — 0.6 keeps distinct
+# same-location findings from merging while still catching true overlaps.
 DUPLICATE_OVERLAP_THRESHOLD = 0.6
 
 
@@ -16,29 +19,43 @@ def _text_overlap(a: str, b: str) -> float:
 
 def dedupe(agent_findings: list[AgentFindings]) -> list[Finding]:
     all_findings = [f for af in agent_findings for f in af.findings]
-    kept: list[Finding] = []
-    dropped_ids: set[str] = set()
+    dropped_indices: set[int] = set()
+    # merged_from[i] collects the ids absorbed into all_findings[i], keyed by index
+    # (not id) so a later duplicate that becomes the new "winner" still accumulates
+    # everything absorbed by the earlier index it replaced.
+    merged_from: dict[int, list[str]] = {}
 
     for i, current in enumerate(all_findings):
-        if current.id in dropped_ids:
+        if i in dropped_indices:
             continue
-        merged_from: list[str] = []
-        for other in all_findings[i + 1:]:
-            if other.id in dropped_ids:
+        winner_index = i
+        for j in range(i + 1, len(all_findings)):
+            if j in dropped_indices:
                 continue
-            if _same_location(current, other) and _text_overlap(current.description, other.description) > DUPLICATE_OVERLAP_THRESHOLD:
-                if len(other.description) > len(current.description):
-                    dropped_ids.add(current.id)
-                    merged_from.append(current.id)
-                    current = other
-                else:
-                    dropped_ids.add(other.id)
-                    merged_from.append(other.id)
-        if merged_from:
-            current = current.model_copy(update={"merged_from": current.merged_from + merged_from})
-        kept.append(current)
+            other = all_findings[j]
+            winner = all_findings[winner_index]
+            if not _same_location(winner, other):
+                continue
+            if _text_overlap(winner.description, other.description) <= DUPLICATE_OVERLAP_THRESHOLD:
+                continue
+            if len(other.description) > len(winner.description):
+                dropped_indices.add(winner_index)
+                merged_from.setdefault(j, []).extend(merged_from.pop(winner_index, []))
+                merged_from[j].append(winner.id)
+                winner_index = j
+            else:
+                dropped_indices.add(j)
+                merged_from.setdefault(winner_index, []).append(other.id)
 
-    return [f for f in kept if f.id not in dropped_ids]
+    kept: list[Finding] = []
+    for i, finding in enumerate(all_findings):
+        if i in dropped_indices:
+            continue
+        absorbed = merged_from.get(i)
+        if absorbed:
+            finding = finding.model_copy(update={"merged_from": finding.merged_from + absorbed})
+        kept.append(finding)
+    return kept
 
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:
