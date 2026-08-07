@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Literal
 
 import anthropic
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from auth import get_expected_token
 from run_qa import ENGAGEMENT_TYPES, REPO_ROOT, run
 
 ALLOWED_SUFFIXES = {".docx", ".pptx", ".pdf"}
@@ -21,12 +23,21 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 JOBS: dict[str, "Job"] = {}
 
 app = FastAPI(title="DeliverableQA")
+security = HTTPBearer(auto_error=False)
 
 
 class Job(BaseModel):
     status: Literal["processing", "done", "error"] = "processing"
     result: dict | None = None
     error: str | None = None
+
+
+async def require_auth(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> None:
+    expected = get_expected_token()
+    if expected is None:
+        return  # auth disabled — DELIVERABLEQA_TOKEN not set
+    if credentials is None or credentials.credentials != expected:
+        raise HTTPException(401, "Missing or invalid bearer token")
 
 
 def _api_error_message(e: Exception) -> tuple[int, str]:
@@ -50,7 +61,7 @@ async def _process_job(job_id: str, tmp_path: Path, engagement_type: str, previo
         tmp_path.unlink(missing_ok=True)
 
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", dependencies=[Depends(require_auth)])
 async def analyze(
     file: UploadFile = File(...),
     engagement_type: str = Form(...),
@@ -86,7 +97,7 @@ async def analyze(
     return {"job_id": job_id, "status": "processing"}
 
 
-@app.get("/api/jobs/{job_id}")
+@app.get("/api/jobs/{job_id}", dependencies=[Depends(require_auth)])
 async def get_job(job_id: str):
     job = JOBS.get(job_id)
     if job is None:

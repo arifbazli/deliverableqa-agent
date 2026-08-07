@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import server
 
 
@@ -191,3 +192,68 @@ class TestAnalyzeJobLifecycle:
                 if status_resp.json()["status"] != "processing":
                     break
                 time.sleep(0.05)
+
+
+class TestAuthEnforcement:
+    def test_no_auth_required_when_token_unset(self, client, monkeypatch):
+        monkeypatch.delenv(auth.TOKEN_ENV_VAR, raising=False)
+
+        async def _fake_run(*a, **kw):
+            return {"dashboard": {"total_findings": 0}, "detailed_report": {"sections": {}}}
+
+        monkeypatch.setattr(server, "run", _fake_run)
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 200
+
+    def test_rejects_missing_token_when_configured(self, client, monkeypatch):
+        monkeypatch.setenv(auth.TOKEN_ENV_VAR, "expected-token")
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 401
+
+    def test_rejects_wrong_token_when_configured(self, client, monkeypatch):
+        monkeypatch.setenv(auth.TOKEN_ENV_VAR, "expected-token")
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+
+        assert resp.status_code == 401
+
+    def test_accepts_correct_token_when_configured(self, client, monkeypatch):
+        monkeypatch.setenv(auth.TOKEN_ENV_VAR, "expected-token")
+
+        async def _fake_run(*a, **kw):
+            return {"dashboard": {"total_findings": 0}, "detailed_report": {"sections": {}}}
+
+        monkeypatch.setattr(server, "run", _fake_run)
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+            headers={"Authorization": "Bearer expected-token"},
+        )
+
+        assert resp.status_code == 200
+
+    def test_job_status_endpoint_also_requires_auth(self, client, monkeypatch):
+        monkeypatch.setenv(auth.TOKEN_ENV_VAR, "expected-token")
+
+        resp = client.get("/api/jobs/some-id")
+
+        assert resp.status_code == 401

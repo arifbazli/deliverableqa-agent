@@ -350,6 +350,17 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
 (function () {
+  // ---------- auth ----------
+  // Reads ?token=... once at load time. If server.py has DELIVERABLEQA_TOKEN set,
+  // every /api/* request needs this as a Bearer header; if unset (the default),
+  // the header is harmless to send and the server ignores it.
+  const API_TOKEN = new URLSearchParams(location.search).get("token");
+  function apiFetch(url, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    if (API_TOKEN) headers["Authorization"] = `Bearer ${API_TOKEN}`;
+    return fetch(url, { ...options, headers });
+  }
+
   const root = document.documentElement;
   const themeToggle = document.getElementById("themeToggle");
   const sunIcon = document.getElementById("themeIconSun");
@@ -470,7 +481,7 @@
   async function pollJob(jobId) {
     const deadline = Date.now() + JOB_POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const res = await fetch(`/api/jobs/${jobId}`);
+      const res = await apiFetch(`/api/jobs/${jobId}`);
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error((body && body.detail) || `Server returned HTTP ${res.status} while checking job status`);
@@ -497,7 +508,7 @@
     formData.append("engagement_type", selectedEngagementType());
 
     try {
-      const res = await fetch("/api/analyze", { method: "POST", body: formData });
+      const res = await apiFetch("/api/analyze", { method: "POST", body: formData });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         const detail = (body && body.detail) || `Server returned HTTP ${res.status}`;
