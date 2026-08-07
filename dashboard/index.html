@@ -3,18 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>DeliverableQA Report</title>
+<title>DeliverableQA</title>
 <style>
   :root { color-scheme: light; }
   .viz-root {
     --surface-1:      #fcfcfb;
-    --page-plane:     #f9f9f7;
+    --surface-2:       #ffffff;
+    --page-plane:     #f4f4f2;
     --text-primary:   #0b0b0b;
     --text-secondary: #52514e;
     --text-muted:     #898781;
     --gridline:       #e1e0d9;
     --baseline:       #c3c2b7;
     --border:         rgba(11,11,11,0.10);
+    --accent:          #2a78d6;
+    --accent-ink:       #ffffff;
+    --accent-wash:      rgba(42,120,214,0.08);
+    --shadow-sm:        0 1px 2px rgba(11,11,11,0.05), 0 1px 1px rgba(11,11,11,0.04);
+    --shadow-md:        0 8px 24px rgba(11,11,11,0.08), 0 2px 6px rgba(11,11,11,0.04);
 
     --series-1: #2a78d6; /* consistency */
     --series-2: #eb6834; /* brand_format */
@@ -29,72 +35,184 @@
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) .viz-root {
       color-scheme: dark;
-      --surface-1: #1a1a19; --page-plane: #0d0d0d;
+      --surface-1: #1a1a19; --surface-2: #222221; --page-plane: #0d0d0d;
       --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #898781;
       --gridline: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+      --accent: #3987e5; --accent-ink: #ffffff; --accent-wash: rgba(57,135,229,0.14);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3); --shadow-md: 0 8px 24px rgba(0,0,0,0.4);
+      --dropzone-border: rgba(255,255,255,0.22);
       --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
       --status-good: #0ca30c; --status-warning: #fab219; --status-serious: #ec835a; --status-critical: #e66767;
     }
   }
   :root[data-theme="dark"] .viz-root {
     color-scheme: dark;
-    --surface-1: #1a1a19; --page-plane: #0d0d0d;
+    --surface-1: #1a1a19; --surface-2: #222221; --page-plane: #0d0d0d;
     --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #898781;
     --gridline: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --accent-ink: #ffffff; --accent-wash: rgba(57,135,229,0.14);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3); --shadow-md: 0 8px 24px rgba(0,0,0,0.4);
+    --dropzone-border: rgba(255,255,255,0.22);
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --status-good: #0ca30c; --status-warning: #fab219; --status-serious: #ec835a; --status-critical: #e66767;
   }
 
   * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    margin: 0;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--page-plane);
     color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .subtitle { color: var(--text-secondary); font-size: 14px; margin: 0 0 28px; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
 
-  .theme-toggle {
-    position: absolute; top: 24px; right: 24px;
-    font-size: 13px; color: var(--text-secondary);
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px;
+    background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
   }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+  .brand svg { color: var(--accent); }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary);
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+  }
+  .icon-btn:hover { background: var(--accent-wash); color: var(--accent); }
 
-  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
+  main { padding: 48px 24px 80px; }
+  .screen { animation: fade-in 0.25s ease; }
+  @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- upload screen ---------- */
+  .shell-narrow { max-width: 640px; margin: 0 auto; }
+  .upload-card { text-align: center; }
+  .upload-card h1 { font-size: 28px; font-weight: 650; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .upload-card .lede { color: var(--text-secondary); font-size: 15px; margin: 0 0 32px; line-height: 1.5; }
+
+  .dropzone {
+    display: block; cursor: pointer;
+    border: 2px dashed var(--dropzone-border, var(--border)); border-radius: 20px;
+    padding: 48px 24px; background: var(--surface-2);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone:hover, .dropzone.is-dragover { border-color: var(--accent); background: var(--accent-wash); }
+  .dropzone svg { color: var(--text-muted); margin-bottom: 12px; }
+  .dropzone:hover svg, .dropzone.is-dragover svg { color: var(--accent); }
+  .dropzone .primary-text { font-size: 15px; font-weight: 500; margin: 0 0 4px; }
+  .dropzone .secondary-text { font-size: 13px; color: var(--text-muted); margin: 0; }
+  .dropzone .selected-file { display: none; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 500; }
+  .dropzone.has-file .selected-file { display: flex; }
+  .dropzone.has-file .idle-prompt { display: none; }
+
+  .field { margin-top: 28px; text-align: left; }
+  .field > label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
+  .segmented { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .segmented input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .segmented label {
+    display: block; text-align: center; padding: 10px 8px; border-radius: 10px;
+    font-size: 13px; font-weight: 500; color: var(--text-secondary);
+    border: 1px solid var(--border); cursor: pointer; transition: all 0.15s;
+  }
+  .segmented input:checked + label { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .segmented input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 480px) { .segmented { grid-template-columns: repeat(2, 1fr); } }
+
+  .btn-primary {
+    width: 100%; margin-top: 28px; padding: 14px 20px; border-radius: 12px;
+    border: none; background: var(--accent); color: var(--accent-ink);
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    box-shadow: var(--shadow-sm); transition: transform 0.1s, opacity 0.15s, box-shadow 0.15s;
+  }
+  .btn-primary:hover:not(:disabled) { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+  .btn-secondary {
+    padding: 9px 16px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-primary); font-size: 13px; font-weight: 500;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-secondary:hover { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
+
+  .banner {
+    display: flex; align-items: flex-start; gap: 10px; text-align: left;
+    margin-top: 20px; padding: 12px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.5;
+  }
+  .banner[hidden] { display: none; }
+  .banner-critical { background: color-mix(in srgb, var(--status-critical) 12%, var(--surface-2)); color: var(--status-critical); }
+  .banner svg { flex-shrink: 0; margin-top: 1px; }
+
+  /* ---------- processing screen ---------- */
+  .processing-card { text-align: center; padding-top: 24px; }
+  .spinner {
+    width: 56px; height: 56px; margin: 0 auto 28px;
+    border: 4px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-top-color: var(--border); } }
+  .processing-card h2 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+  .processing-card .filename { color: var(--text-secondary); font-weight: 500; }
+  .elapsed { font-size: 14px; color: var(--text-muted); margin: 0 0 4px; font-variant-numeric: tabular-nums; }
+  .processing-hint { font-size: 13.5px; color: var(--text-muted); margin: 0 0 32px; }
+
+  .checks-list { list-style: none; padding: 0; margin: 0; text-align: left; display: grid; gap: 10px; }
+  .checks-list li {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2);
+    font-size: 14px; color: var(--text-secondary);
+    animation: pulse-check 2.4s ease-in-out infinite;
+  }
+  .checks-list li:nth-child(2) { animation-delay: 0.2s; }
+  .checks-list li:nth-child(3) { animation-delay: 0.4s; }
+  .checks-list li:nth-child(4) { animation-delay: 0.6s; }
+  @keyframes pulse-check { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .checks-list li { animation: none; opacity: 1; } }
+  .checks-list .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ---------- results screen ---------- */
+  .shell-wide { max-width: 1080px; margin: 0 auto; }
+  .results-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+  .results-header h1 { font-size: 24px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .results-header .meta { color: var(--text-secondary); font-size: 13.5px; margin: 0; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
   .stat-tile {
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px 18px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 18px 20px; box-shadow: var(--shadow-sm);
   }
-  .stat-tile .label { font-size: 13px; color: var(--text-secondary); margin: 0 0 6px; }
-  .stat-tile .value { font-size: 28px; font-weight: 600; margin: 0; font-variant-numeric: proportional-nums; }
+  .stat-tile .label { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px; }
+  .stat-tile .value-row { display: flex; align-items: center; gap: 8px; }
+  .stat-tile .value { font-size: 26px; font-weight: 650; margin: 0; font-variant-numeric: proportional-nums; }
   .stat-tile.pass .value { color: var(--status-good); }
   .stat-tile.fail .value { color: var(--status-critical); }
 
   .card {
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
-    padding: 20px; margin-bottom: 20px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px; margin-bottom: 20px; box-shadow: var(--shadow-sm);
   }
-  .card h2 { font-size: 15px; margin: 0 0 14px; color: var(--text-primary); }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 16px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
 
   .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
   @media (max-width: 720px) { .charts-row, .kpi-row { grid-template-columns: 1fr; } }
-
   canvas { max-width: 100%; }
 
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--text-secondary); }
   .legend-item { display: flex; align-items: center; gap: 6px; }
-  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
-  th { color: var(--text-muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
+  th { color: var(--text-muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  tbody tr:hover { background: var(--accent-wash); }
   td.severity { white-space: nowrap; }
-  .sev-badge {
-    display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500;
-  }
+  .sev-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
   .sev-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .sev-critical .sev-dot { background: var(--status-critical); }
   .sev-warning  .sev-dot { background: var(--status-warning); }
@@ -107,46 +225,126 @@
     :root:where(:not([data-theme="light"])) .sev-warning { color: var(--status-warning); }
   }
 
-  .view-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
+  .view-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
   .view-toggle button {
-    font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+    font-size: 13px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border);
     background: transparent; color: var(--text-secondary); cursor: pointer;
   }
-  .view-toggle button[aria-pressed="true"] { background: var(--page-plane); color: var(--text-primary); font-weight: 500; }
+  .view-toggle button[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent); border-color: var(--accent); font-weight: 500; }
 
   .empty-state { color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 20px 0 10px; }
 </style>
 </head>
 <body>
 <div class="viz-root">
-  <div class="wrap">
-    <button class="theme-toggle" id="themeToggle" type="button">Dark mode</button>
-    <h1>DeliverableQA Report</h1>
-    <p class="subtitle" id="subtitle">Loading findings…</p>
-
-    <div class="kpi-row" id="kpiRow"></div>
-
-    <div class="charts-row">
-      <div class="card">
-        <h2>Findings by severity</h2>
-        <canvas id="severityChart" height="220"></canvas>
-      </div>
-      <div class="card">
-        <h2>Findings by agent</h2>
-        <canvas id="agentChart" height="220"></canvas>
-        <div class="legend" id="agentLegend"></div>
-      </div>
+  <header class="topbar">
+    <div class="brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/><path d="M9 13.5l1.8 1.8L15 11"/></svg>
+      DeliverableQA
     </div>
+    <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle dark mode">
+      <svg id="themeIconSun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="4.2" y1="4.2" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.8" y2="19.8"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.2" y1="19.8" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.8" y2="4.2"/></svg>
+      <svg id="themeIconMoon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
+    </button>
+  </header>
 
-    <div class="card">
-      <h2>Detailed findings</h2>
-      <div class="view-toggle" role="group" aria-label="View mode">
-        <button id="viewChartLike" aria-pressed="true" type="button">Grouped by section</button>
-        <button id="viewTable" aria-pressed="false" type="button">Table view</button>
+  <main>
+    <!-- ============ UPLOAD ============ -->
+    <section id="screen-upload" class="screen shell-narrow">
+      <div class="upload-card">
+        <h1>Check a deliverable before it goes out</h1>
+        <p class="lede">Drop a Word, PDF, or PowerPoint file. Four specialist agents review it in parallel for inconsistencies, brand/format issues, tone problems, and structural gaps.</p>
+
+        <label class="dropzone" id="dropzone" for="fileInput">
+          <div class="idle-prompt">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10M12 3l-4 4M12 3l4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+            <p class="primary-text">Drag &amp; drop a file, or click to browse</p>
+            <p class="secondary-text">.docx, .pptx, or .pdf — up to 25 MB</p>
+          </div>
+          <div class="selected-file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/></svg>
+            <span id="selectedFilename"></span>
+          </div>
+          <input type="file" id="fileInput" class="visually-hidden" accept=".docx,.pptx,.pdf" />
+        </label>
+
+        <div class="field">
+          <label>Engagement type</label>
+          <div class="segmented" id="engagementPicker">
+            <input type="radio" name="engagementType" id="et-advisory" value="advisory" checked />
+            <label for="et-advisory">Advisory</label>
+            <input type="radio" name="engagementType" id="et-audit" value="audit" />
+            <label for="et-audit">Audit</label>
+            <input type="radio" name="engagementType" id="et-tax" value="tax" />
+            <label for="et-tax">Tax</label>
+            <input type="radio" name="engagementType" id="et-consulting" value="consulting" />
+            <label for="et-consulting">Consulting</label>
+          </div>
+        </div>
+
+        <div class="banner banner-critical" id="uploadError" hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 15H3z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg>
+          <span id="uploadErrorText"></span>
+        </div>
+
+        <button class="btn-primary" id="analyzeButton" type="button" disabled>Analyze deliverable</button>
       </div>
-      <div id="findingsBody"></div>
-    </div>
-  </div>
+    </section>
+
+    <!-- ============ PROCESSING ============ -->
+    <section id="screen-processing" class="screen shell-narrow" hidden>
+      <div class="processing-card">
+        <div class="spinner" aria-hidden="true"></div>
+        <h2>Reviewing <span class="filename" id="processingFilename"></span></h2>
+        <p class="elapsed" id="elapsedTimer">0s elapsed</p>
+        <p class="processing-hint">Usually takes about a minute — 4 specialist agents are reading the document in parallel.</p>
+        <ul class="checks-list">
+          <li><span class="dot" style="background:var(--series-1)"></span>Consistency — numbers, dates, claims</li>
+          <li><span class="dot" style="background:var(--series-2)"></span>Brand &amp; Format — fonts, colours, disclaimers</li>
+          <li><span class="dot" style="background:var(--series-3)"></span>Language &amp; Tone — vague claims, passive voice</li>
+          <li><span class="dot" style="background:var(--series-4)"></span>Structure — required sections</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section id="screen-results" class="screen shell-wide" hidden>
+      <div class="results-header">
+        <div>
+          <h1>QA report</h1>
+          <p class="meta" id="resultsMeta"></p>
+        </div>
+        <button class="btn-secondary" id="newAnalysisButton" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><path d="M11 6l-6 6 6 6"/></svg>
+          New analysis
+        </button>
+      </div>
+
+      <div class="kpi-row" id="kpiRow"></div>
+
+      <div class="charts-row">
+        <div class="card">
+          <h2>Findings by severity</h2>
+          <canvas id="severityChart" height="220"></canvas>
+        </div>
+        <div class="card">
+          <h2>Findings by agent</h2>
+          <canvas id="agentChart" height="220"></canvas>
+          <div class="legend" id="agentLegend"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Detailed findings</h2>
+        <div class="view-toggle" role="group" aria-label="View mode">
+          <button id="viewChartLike" aria-pressed="true" type="button">Grouped by section</button>
+          <button id="viewTable" aria-pressed="false" type="button">Table view</button>
+        </div>
+        <div id="findingsBody"></div>
+      </div>
+    </section>
+  </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -154,22 +352,158 @@
 (function () {
   const root = document.documentElement;
   const themeToggle = document.getElementById("themeToggle");
+  const sunIcon = document.getElementById("themeIconSun");
+  const moonIcon = document.getElementById("themeIconMoon");
+
   function currentTheme() {
     return root.getAttribute("data-theme") ||
       (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   }
-  themeToggle.textContent = currentTheme() === "dark" ? "Light mode" : "Dark mode";
+  function syncThemeIcon() {
+    const dark = currentTheme() === "dark";
+    sunIcon.style.display = dark ? "none" : "block";
+    moonIcon.style.display = dark ? "block" : "none";
+  }
+  syncThemeIcon();
   themeToggle.addEventListener("click", () => {
     const next = currentTheme() === "dark" ? "light" : "dark";
     root.setAttribute("data-theme", next);
-    themeToggle.textContent = next === "dark" ? "Light mode" : "Dark mode";
-    renderCharts(window.__qaData);
+    syncThemeIcon();
+    if (window.__qaData) renderCharts(window.__qaData);
   });
 
   function cssVar(name) {
     return getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(name).trim();
   }
 
+  // ---------- screen switching ----------
+  const screens = {
+    upload: document.getElementById("screen-upload"),
+    processing: document.getElementById("screen-processing"),
+    results: document.getElementById("screen-results"),
+  };
+  function showScreen(name) {
+    Object.entries(screens).forEach(([key, el]) => { el.hidden = key !== name; });
+  }
+
+  // ---------- upload screen ----------
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+  const selectedFilename = document.getElementById("selectedFilename");
+  const analyzeButton = document.getElementById("analyzeButton");
+  const uploadError = document.getElementById("uploadError");
+  const uploadErrorText = document.getElementById("uploadErrorText");
+
+  const ALLOWED_EXTENSIONS = [".docx", ".pptx", ".pdf"];
+  let selectedFile = null;
+
+  function showUploadError(message) {
+    uploadErrorText.textContent = message;
+    uploadError.hidden = false;
+  }
+  function clearUploadError() {
+    uploadError.hidden = true;
+  }
+
+  function setSelectedFile(file) {
+    if (!file) return;
+    const ext = "." + (file.name.split(".").pop() || "").toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      showUploadError(`Unsupported file type "${ext}" — please choose a .docx, .pptx, or .pdf file.`);
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      showUploadError("File exceeds the 25 MB limit.");
+      return;
+    }
+    clearUploadError();
+    selectedFile = file;
+    selectedFilename.textContent = file.name;
+    dropzone.classList.add("has-file");
+    analyzeButton.disabled = false;
+  }
+
+  fileInput.addEventListener("change", () => setSelectedFile(fileInput.files[0]));
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("is-dragover"); })
+  );
+  ["dragleave", "dragend"].forEach((evt) =>
+    dropzone.addEventListener(evt, () => dropzone.classList.remove("is-dragover"))
+  );
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("is-dragover");
+    const dt = e.dataTransfer;
+    if (dt && dt.files && dt.files.length) {
+      fileInput.files = dt.files;
+      setSelectedFile(dt.files[0]);
+    }
+  });
+
+  function selectedEngagementType() {
+    const checked = document.querySelector('input[name="engagementType"]:checked');
+    return checked ? checked.value : "advisory";
+  }
+
+  let elapsedInterval = null;
+  function startElapsedTimer() {
+    const start = performance.now();
+    const el = document.getElementById("elapsedTimer");
+    elapsedInterval = setInterval(() => {
+      const seconds = Math.round((performance.now() - start) / 1000);
+      el.textContent = `${seconds}s elapsed`;
+    }, 1000);
+  }
+  function stopElapsedTimer() {
+    if (elapsedInterval) clearInterval(elapsedInterval);
+    elapsedInterval = null;
+  }
+
+  analyzeButton.addEventListener("click", async () => {
+    if (!selectedFile) return;
+    clearUploadError();
+
+    document.getElementById("processingFilename").textContent = selectedFile.name;
+    document.getElementById("elapsedTimer").textContent = "0s elapsed";
+    showScreen("processing");
+    startElapsedTimer();
+
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    formData.append("engagement_type", selectedEngagementType());
+
+    try {
+      const res = await fetch("/api/analyze", { method: "POST", body: formData });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = (body && body.detail) || `Server returned HTTP ${res.status}`;
+        throw new Error(detail);
+      }
+      stopElapsedTimer();
+      showScreen("results");
+      renderResults(body, selectedFile.name, selectedEngagementType());
+    } catch (err) {
+      stopElapsedTimer();
+      showScreen("upload");
+      const message = err instanceof TypeError
+        ? "Couldn't reach the DeliverableQA server — is it running?"
+        : err.message;
+      showUploadError(message);
+      console.error(err);
+    }
+  });
+
+  document.getElementById("newAnalysisButton").addEventListener("click", () => {
+    selectedFile = null;
+    fileInput.value = "";
+    dropzone.classList.remove("has-file");
+    analyzeButton.disabled = true;
+    clearUploadError();
+    showScreen("upload");
+  });
+
+  // ---------- results rendering ----------
   const SEVERITY_COLOR = {
     critical: () => cssVar("--status-critical"),
     warning: () => cssVar("--status-warning"),
@@ -187,16 +521,22 @@
     language_tone: "Language / Tone",
     structure: "Structure",
   };
+  const ENGAGEMENT_LABEL = {
+    advisory: "Advisory", audit: "Audit", tax: "Tax", consulting: "Consulting",
+  };
 
   let severityChartInstance, agentChartInstance;
 
   function renderKpis(dashboard) {
     const kpiRow = document.getElementById("kpiRow");
     const passFail = dashboard.pass_fail === "fail" ? "fail" : "pass";
+    const icon = passFail === "fail"
+      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 15H3z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg>'
+      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>';
     kpiRow.innerHTML = `
       <div class="stat-tile ${passFail}">
         <p class="label">Recommendation</p>
-        <p class="value">${passFail === "fail" ? "Fail" : "Pass"}</p>
+        <div class="value-row">${icon}<p class="value">${passFail === "fail" ? "Fail" : "Pass"}</p></div>
       </div>
       <div class="stat-tile">
         <p class="label">Total findings</p>
@@ -224,12 +564,7 @@
       type: "bar",
       data: {
         labels: ["Critical", "Warning", "Suggestion"],
-        datasets: [{
-          data: sevData,
-          backgroundColor: sevColors,
-          borderRadius: 4,
-          barThickness: 24,
-        }],
+        datasets: [{ data: sevData, backgroundColor: sevColors, borderRadius: 4, barThickness: 24 }],
       },
       options: {
         indexAxis: "y",
@@ -253,12 +588,7 @@
       type: "bar",
       data: {
         labels: agentKeys.map((k) => AGENT_LABEL[k]),
-        datasets: [{
-          data: agentData,
-          backgroundColor: agentColors,
-          borderRadius: 4,
-          barThickness: 24,
-        }],
+        datasets: [{ data: agentData, backgroundColor: agentColors, borderRadius: 4, barThickness: 24 }],
       },
       options: {
         plugins: {
@@ -272,8 +602,7 @@
       },
     });
 
-    const legend = document.getElementById("agentLegend");
-    legend.innerHTML = agentKeys
+    document.getElementById("agentLegend").innerHTML = agentKeys
       .map((k) => `<span class="legend-item"><span class="swatch" style="background:${AGENT_COLOR[k]()}"></span>${AGENT_LABEL[k]}</span>`)
       .join("");
   }
@@ -291,7 +620,7 @@
     }
     container.innerHTML = sections
       .map(([section, findings]) => `
-        <h3 style="font-size:13px;color:var(--text-secondary);margin:16px 0 8px;">${section}</h3>
+        <h3 class="section-title">${section}</h3>
         <table>
           <thead><tr><th>Severity</th><th>Category</th><th>Description</th><th>Proposed fix</th></tr></thead>
           <tbody>
@@ -337,39 +666,32 @@
   function wireViewToggle(detailedReport) {
     const btnGrouped = document.getElementById("viewChartLike");
     const btnTable = document.getElementById("viewTable");
-    btnGrouped.addEventListener("click", () => {
+    btnGrouped.onclick = () => {
       btnGrouped.setAttribute("aria-pressed", "true");
       btnTable.setAttribute("aria-pressed", "false");
       renderGroupedView(detailedReport);
-    });
-    btnTable.addEventListener("click", () => {
+    };
+    btnTable.onclick = () => {
       btnGrouped.setAttribute("aria-pressed", "false");
       btnTable.setAttribute("aria-pressed", "true");
       renderTableView(detailedReport);
-    });
+    };
   }
 
-  async function load() {
-    const subtitle = document.getElementById("subtitle");
-    try {
-      const res = await fetch("findings.json");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      window.__qaData = data;
-      subtitle.textContent = data.generated_at
-        ? `Generated ${data.generated_at}`
-        : "Merged findings across all specialist agents";
-      renderKpis(data.dashboard);
-      renderCharts(data);
-      renderGroupedView(data.detailed_report);
-      wireViewToggle(data.detailed_report);
-    } catch (err) {
-      subtitle.textContent = "Could not load findings.json — run run_qa.py first, or serve this folder with a local HTTP server.";
-      console.error(err);
-    }
+  function renderResults(data, filename, engagementType) {
+    window.__qaData = data;
+    const when = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    document.getElementById("resultsMeta").textContent =
+      `${filename} · ${ENGAGEMENT_LABEL[engagementType] || engagementType} engagement · ${when}`;
+    renderKpis(data.dashboard);
+    renderCharts(data);
+    document.getElementById("viewChartLike").setAttribute("aria-pressed", "true");
+    document.getElementById("viewTable").setAttribute("aria-pressed", "false");
+    renderGroupedView(data.detailed_report);
+    wireViewToggle(data.detailed_report);
   }
 
-  load();
+  showScreen("upload");
 })();
 </script>
 </body>

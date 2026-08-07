@@ -11,6 +11,7 @@ from orchestrator.parse import parse_document, render_document_context
 
 REPO_ROOT = Path(__file__).resolve().parent
 CONFIG_DIR = REPO_ROOT / "config"
+ENGAGEMENT_TYPES = {"advisory", "audit", "tax", "consulting"}
 
 
 def load_checklist(engagement_type: str) -> str:
@@ -46,7 +47,7 @@ def main() -> None:
     parser.add_argument(
         "--engagement-type",
         required=True,
-        choices=["advisory", "audit", "tax", "consulting"],
+        choices=sorted(ENGAGEMENT_TYPES),
         help="Engagement type — selects the checklist to apply",
     )
     parser.add_argument(

@@ -40,9 +40,9 @@ Local-only Python + LangGraph implementation, per the original project proposal.
 - **Style/checklist rules**: YAML config file, editable per engagement type
 - **File handling**: local filesystem
 - **Findings storage**: local JSON
-- **QA Dashboard**: single-page HTML + Chart.js report, reads local findings JSON
+- **QA Dashboard**: single-page HTML app with an upload → processing → results flow (drag-and-drop a deliverable, watch the 4 agents run, see the report) + Chart.js. Served by `server.py` (FastAPI + uvicorn), which also exposes `POST /api/analyze` and reuses the exact same `orchestrator`/`agents` code as `run_qa.py` — no separate pipeline implementation for the web path.
 - **Prompts**: structured system prompts per agent role, stored as versioned `.md` files (see `prompts/`), loaded at runtime — not hardcoded in source
-- **Deployment**: none — runs locally, no client data leaves the machine
+- **Deployment**: none — runs locally, no client data leaves the machine. `server.py` binds to `127.0.0.1` only.
 
 **Structured output note:** `output_config.format` / `strict` tool schemas aren't supported on this Bedrock route, and a `$ref`/`$defs`-based Pydantic schema makes `claude-sonnet-5` unreliably stringify nested fields instead of emitting real JSON (confirmed ~90% failure rate in testing). Agents use forced tool-use (`tool_choice`) against a `$ref`-inlined flat schema instead, plus a small repair step for the residual cases where a field still comes back stringified — see `agents/schema.py`.
 
@@ -231,7 +231,7 @@ Output strictly as JSON matching the shared DeliverableQA finding schema.
 2. **Prompts**: the five system prompts above live as versioned `.md` files under `prompts/`, loaded at runtime by each agent module (not hardcoded strings), each enforcing output via the shared JSON schema (structured/forced-JSON output).
 3. **YAML configs**: `config/checklists/{advisory,audit,tax,consulting}.yaml` (required sections) and `config/style_rules.yaml` (fonts, colours, disclaimers).
 4. **Merge logic**: dedup (semantic similarity on description + same location), severity sort, dashboard aggregation.
-5. **Dashboard**: single-page HTML + Chart.js report, reads local findings JSON, renders severity counts + top critical items + full findings table.
+5. **Dashboard**: single-page HTML + Chart.js app with an upload/processing/results flow, renders severity counts + top critical items + full findings table. `server.py` (FastAPI) serves it and exposes `POST /api/analyze` for the browser upload path; `run_qa.py` remains the CLI path — both call the same `orchestrator`/`agents` functions.
 6. **Test loop**: 3 sample deliverables with planted errors (one per engagement type) → run end-to-end → verify each agent's known planted error is caught → tune prompts.
 
 ## Suggested repo structure
@@ -260,10 +260,12 @@ deliverableqa-agent/
 │   │   ├── tax.yaml
 │   │   └── consulting.yaml
 │   └── style_rules.yaml
-├── dashboard/             # single-page HTML + Chart.js report
+├── dashboard/             # single-page HTML app: upload -> processing -> results, + Chart.js
 ├── samples/               # 3+ planted-error test deliverables
 ├── schema/
 │   └── finding.schema.json
+├── run_qa.py              # CLI entry point
+├── server.py              # FastAPI app: serves dashboard/, exposes POST /api/analyze
 └── requirements.txt
 ```
 

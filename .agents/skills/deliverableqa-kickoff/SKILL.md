@@ -40,8 +40,11 @@ Stack mapping:
 - Config: YAML checklists/style rules, parsed with PyYAML
 - Prompts: the 5 system prompts live as versioned .md files under prompts/,
   loaded at runtime — not hardcoded in source
-- Dashboard: single-page HTML + Chart.js, reads a local findings.json (no backend
-  needed — serve with `python -m http.server` from dashboard/ to view)
+- Dashboard: single-page HTML app with an upload -> processing -> results flow
+  (drag-and-drop a deliverable, watch it process, see the report) + Chart.js.
+  Served by server.py (FastAPI + uvicorn), which also exposes POST /api/analyze
+  and calls the exact same orchestrator/agents functions as run_qa.py — don't
+  fork the pipeline logic for the web path.
 - Structured output: this Bedrock route doesn't support output_config.format
   or strict tool schemas, and a $ref/$defs Pydantic schema makes the model
   unreliably stringify nested fields. Use forced tool-use (tool_choice) with
@@ -50,13 +53,18 @@ Stack mapping:
 
 Scaffold now:
 1. Python venv + requirements.txt (langgraph, anthropic[bedrock], boto3,
-   python-docx, python-pptx, pymupdf, pyyaml)
+   python-docx, python-pptx, pymupdf, pyyaml, fastapi, uvicorn[standard],
+   python-multipart)
 2. orchestrator/ — parse.py, dispatch.py, merge.py
 3. agents/ — one .py file per agent from CONTEXT.md's prompts, each calling the
    shared JSON finding schema via a forced tool-use call
 4. config/checklists/*.yaml and config/style_rules.yaml
-5. dashboard/ — single-page HTML + Chart.js, reads local findings.json
-6. Commit scaffold once it runs end-to-end on a sample doc
+5. dashboard/ — single-page HTML app (upload/processing/results states) + Chart.js
+6. server.py — FastAPI app, POST /api/analyze (upload -> run the pipeline ->
+   return JSON), serves dashboard/ as static root; run_qa.py stays as the CLI
+   entry point, both call the same run() function
+7. Commit scaffold once it runs end-to-end on a sample doc, via both the CLI
+   and a browser upload
 
 Ask me before adding any dependency beyond the ones listed above. Otherwise proceed
 autonomously through the scaffold.

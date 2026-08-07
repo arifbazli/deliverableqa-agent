@@ -5,6 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.14-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1c3c3c)](https://github.com/langchain-ai/langgraph)
 [![Claude on Bedrock](https://img.shields.io/badge/Claude-Amazon%20Bedrock-D97757)](https://aws.amazon.com/bedrock/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#)
 
 Built for the Deloitte Agentathon by a 4-person team. Full build spec, agent prompts, and schema live in [`CONTEXT.md`](./CONTEXT.md).
@@ -73,8 +74,9 @@ Local-only Python + LangGraph, per the original project proposal — no cloud de
 | Document parsing | `python-docx` 1.2 (docx), `python-pptx` 1.0 (pptx), `PyMuPDF` 1.28 (pdf) |
 | Config | YAML checklists + style rules, parsed with PyYAML 6.0 |
 | Findings storage | Local JSON (`output/findings.json`) |
-| Dashboard | Single-page HTML + Chart.js (CDN), no build step |
-| Deployment | None — runs locally, no client data leaves the machine |
+| Dashboard | Single-page HTML app (upload → processing → results) + Chart.js (CDN), no build step |
+| Web server | FastAPI + uvicorn (`server.py`) — serves the dashboard and exposes `POST /api/analyze`, calling the same pipeline `run_qa.py` does |
+| Deployment | None — runs locally on `127.0.0.1`, no client data leaves the machine |
 
 > **Why Bedrock, and why forced tool-use instead of structured outputs:** this team's Bedrock IAM policy denies Opus/Fable, and Sonnet needs the `global.` cross-region inference-profile prefix to resolve at all. On top of that, this Bedrock route doesn't support `output_config.format` or `strict` tool schemas, and a `$ref`/`$defs`-based Pydantic schema made `claude-sonnet-5` unreliably stringify nested fields instead of emitting real JSON (~90% failure rate in testing). `agents/schema.py` works around both: forced `tool_choice` against a `$ref`-inlined flat schema, plus a small JSON-repair step for the residual stringified-field cases.
 
@@ -118,11 +120,13 @@ deliverableqa-agent/
 │   └── finding.schema.json       # the shared finding shape as plain JSON Schema
 │
 ├── dashboard/
-│   └── index.html                # single-page report, reads findings.json, no build step
+│   └── index.html                # upload -> processing -> results screens, + Chart.js
 │
 ├── samples/
 │   ├── generate_sample.py        # builds a sample deliverable with 3 planted errors
 │   └── advisory_sample.docx
+│
+├── server.py                     # FastAPI app: POST /api/analyze + serves dashboard/ as static root
 │
 ├── .agents/skills/deliverableqa-kickoff/   # kickoff skill, discovered by Pi
 └── .claude/skills/deliverableqa-kickoff/   # kickoff skill, discovered by Claude Code (identical copy)
@@ -165,20 +169,35 @@ pip install -r requirements.txt
 
 # AWS credentials must be resolvable via the standard boto3 chain
 # (env vars, ~/.aws/credentials, or an active AWS SSO/profile session)
+```
 
+Engagement type is one of `advisory`, `audit`, `tax`, `consulting` — each maps to its own checklist under `config/checklists/`.
+
+### Option A — web UI
+
+```bash
+python server.py
+# open http://localhost:8000
+```
+
+Drag a `.docx`/`.pptx`/`.pdf` onto the page (or click to browse), pick the engagement type, and click **Analyze deliverable**. The 4 agents run in parallel — typically ~30–120s — and the report renders in the browser when done. No file needs to be pre-staged; upload goes straight to the pipeline via `POST /api/analyze`.
+
+### Option B — CLI
+
+```bash
 # generate a sample deliverable with 3 planted errors (optional — one is committed already)
 python samples/generate_sample.py
 
-# run the pipeline
 python run_qa.py samples/advisory_sample.docx --engagement-type advisory
 ```
 
-This writes `output/findings.json`. Engagement type is one of `advisory`, `audit`, `tax`, `consulting` — each maps to its own checklist under `config/checklists/`. To view the report:
+This writes `output/findings.json`. To view it in the dashboard afterward:
 
 ```bash
 cp output/findings.json dashboard/findings.json    # dashboard fetches this relative to itself
 python -m http.server 8000 --directory dashboard
-# open http://localhost:8000
+# open http://localhost:8000 — note this is a *different* static-file server than server.py;
+# it can't accept new uploads, only display a findings.json already sitting in dashboard/
 ```
 
 ## Status
@@ -188,7 +207,7 @@ python -m http.server 8000 --directory dashboard
 - All 4 specialist agents, calling Claude on Bedrock via forced tool-use, each producing schema-conformant findings
 - LangGraph fan-out/fan-in across all 4 agents
 - Deterministic merge: cross-agent dedup (`difflib` similarity on same-location findings), severity sort, dashboard aggregation
-- Single-page dashboard (light/dark, grouped and table views) rendering real pipeline output
+- Web UI: drag-and-drop upload → live processing (elapsed timer, no fake progress bar) → results, backed by `server.py`'s `POST /api/analyze`, which calls the same pipeline code as the CLI — no duplicated logic. Verified against a real upload end-to-end (server up, file in, real Bedrock calls, rendered report out) in both light and dark mode.
 - CLI entry point (`run_qa.py`), tested against a fresh venv end-to-end
 
 **Not yet built:**
@@ -197,6 +216,8 @@ python -m http.server 8000 --directory dashboard
 - Only one sample deliverable exists; `audit`, `tax`, and `consulting` checklists are written but untested against a real document
 - No re-run/delta mode (comparing a QA pass against a prior one after fixes are applied) — `CONTEXT.md`'s orchestrator spec calls for this, not implemented
 - No handling for documents that don't map cleanly to the section-per-heading assumption `parse.py` makes (e.g. decks with no text-frame titles, scanned PDFs)
+- `POST /api/analyze` runs the pipeline synchronously — one request blocks for the full ~30–120s run. Fine for a single local user; would need a job queue for concurrent uploads.
+- No auth on `server.py` — acceptable since it binds to `127.0.0.1` only, but don't expose this port beyond localhost as-is.
 
 ## Agent skill (Pi + Claude Code)
 
