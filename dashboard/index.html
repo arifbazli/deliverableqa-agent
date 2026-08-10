@@ -114,6 +114,10 @@
 
   .field { margin-top: 28px; text-align: left; }
   .field > label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
+  .field input[type="file"] {
+    width: 100%; font-size: 13px; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; background: var(--surface-2);
+  }
   .segmented { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .segmented input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .segmented label {
@@ -192,6 +196,8 @@
   .stat-tile .value { font-size: 26px; font-weight: 650; margin: 0; font-variant-numeric: proportional-nums; }
   .stat-tile.pass .value { color: var(--status-good); }
   .stat-tile.fail .value { color: var(--status-critical); }
+  .stat-tile.delta-resolved .value { color: var(--status-good); }
+  .stat-tile.delta-new .value { color: var(--status-critical); }
 
   .card {
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px;
@@ -283,6 +289,12 @@
           </div>
         </div>
 
+        <div class="field">
+          <label for="previousFindingsInput">Compare to previous run (optional)</label>
+          <input type="file" id="previousFindingsInput" accept=".json" />
+          <p class="secondary-text" id="previousFindingsHint" style="margin-top:6px;">Pick a prior findings.json for this same document to see what's resolved, still open, and new.</p>
+        </div>
+
         <div class="banner banner-critical" id="uploadError" hidden>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 15H3z"/><line x1="12" y1="10" x2="12" y2="14"/><circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none"/></svg>
           <span id="uploadErrorText"></span>
@@ -322,6 +334,12 @@
       </div>
 
       <div class="kpi-row" id="kpiRow"></div>
+
+      <div class="card" id="deltaCard" hidden>
+        <h2>Delta vs. previous run</h2>
+        <div class="kpi-row" id="deltaKpiRow"></div>
+        <div id="deltaBody"></div>
+      </div>
 
       <div class="charts-row">
         <div class="card">
@@ -404,6 +422,7 @@
   const analyzeButton = document.getElementById("analyzeButton");
   const uploadError = document.getElementById("uploadError");
   const uploadErrorText = document.getElementById("uploadErrorText");
+  const previousFindingsInput = document.getElementById("previousFindingsInput");
 
   const ALLOWED_EXTENSIONS = [".docx", ".pptx", ".pdf"];
   let selectedFile = null;
@@ -506,6 +525,9 @@
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("engagement_type", selectedEngagementType());
+    if (previousFindingsInput.files[0]) {
+      formData.append("previous_findings", previousFindingsInput.files[0]);
+    }
 
     try {
       const res = await apiFetch("/api/analyze", { method: "POST", body: formData });
@@ -532,6 +554,7 @@
   document.getElementById("newAnalysisButton").addEventListener("click", () => {
     selectedFile = null;
     fileInput.value = "";
+    previousFindingsInput.value = "";
     dropzone.classList.remove("has-file");
     analyzeButton.disabled = true;
     clearUploadError();
@@ -713,12 +736,65 @@
     };
   }
 
+  function renderDelta(delta) {
+    const deltaCard = document.getElementById("deltaCard");
+    if (!delta) {
+      deltaCard.hidden = true;
+      return;
+    }
+    deltaCard.hidden = false;
+
+    const counts = delta.counts || { resolved: 0, still_open: 0, new: 0 };
+    document.getElementById("deltaKpiRow").innerHTML = `
+      <div class="stat-tile delta-resolved">
+        <p class="label">Resolved</p>
+        <p class="value">${counts.resolved}</p>
+      </div>
+      <div class="stat-tile">
+        <p class="label">Still open</p>
+        <p class="value">${counts.still_open}</p>
+      </div>
+      <div class="stat-tile delta-new">
+        <p class="label">New</p>
+        <p class="value">${counts.new}</p>
+      </div>
+    `;
+
+    const deltaGroup = (title, findings) => {
+      if (!findings || findings.length === 0) return "";
+      return `
+        <h3 class="section-title">${title} (${findings.length})</h3>
+        <table>
+          <thead><tr><th>Severity</th><th>Section</th><th>Description</th></tr></thead>
+          <tbody>
+            ${findings.map((f) => `
+              <tr>
+                <td class="severity">${severityBadge(f.severity)}</td>
+                <td>${f.location.section}</td>
+                <td>${f.description}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    };
+
+    const body = [
+      deltaGroup("New", delta.new),
+      deltaGroup("Still open", delta.still_open),
+      deltaGroup("Resolved", delta.resolved),
+    ].join("");
+    document.getElementById("deltaBody").innerHTML =
+      body || '<div class="empty-state">No findings in either run.</div>';
+  }
+
   function renderResults(data, filename, engagementType) {
     window.__qaData = data;
     const when = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     document.getElementById("resultsMeta").textContent =
       `${filename} · ${ENGAGEMENT_LABEL[engagementType] || engagementType} engagement · ${when}`;
     renderKpis(data.dashboard);
+    renderDelta(data.delta);
     renderCharts(data);
     document.getElementById("viewChartLike").setAttribute("aria-pressed", "true");
     document.getElementById("viewTable").setAttribute("aria-pressed", "false");
