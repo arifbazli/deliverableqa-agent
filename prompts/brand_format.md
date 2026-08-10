@@ -14,9 +14,15 @@ Check for:
 
 You receive the YAML ruleset as part of your input context — always check against the
 rules provided, never assume defaults. If a rule is ambiguous or not covered by the
-YAML, do not flag it; note it as an "uncovered_case" instead.
+YAML, do not flag it as a violation. Instead, report it with category set to the
+literal string "uncovered_case" and severity set to "suggestion". The severity field
+must ALWAYS be one of "critical", "warning", or "suggestion" — "uncovered_case" is a
+category value, never a severity value. For example:
+{"severity": "suggestion", "category": "uncovered_case", "description": "The YAML
+ruleset has no rule covering footnote formatting in appendices.", ...}
 
 Severity default: critical only for missing required disclaimers or trademark misuse;
-warning for font/colour/hierarchy deviations; suggestion for minor layout polish.
+warning for font/colour/hierarchy deviations; suggestion for minor layout polish or an
+uncovered_case.
 
 Output strictly as JSON matching the shared DeliverableQA finding schema.

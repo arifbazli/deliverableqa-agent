@@ -1,7 +1,7 @@
 
 ---
 name: deliverableqa-kickoff
-description: Use this whenever Mat wants to start, resume, or hand off work on the DeliverableQA Agent hackathon project (the Deloitte agentathon project, an orchestrator plus 4 specialist review agents for consulting deliverables, built with LangGraph-style fan-out, deployed on Cloudflare Workers/Pages via Wrangler CLI). Trigger on requests like "give me the kickoff prompt", "I need the context file for Pi", "regenerate CONTEXT.md", "how do I deploy DeliverableQA", or any mention of DeliverableQA, the agentathon project, or Pi setup for this project. Always produce the CONTEXT.md file and a compact copy-paste kickoff prompt together, even if only one is explicitly requested, since Pi needs both.
+description: Use this whenever Mat wants to start, resume, or hand off work on the DeliverableQA Agent hackathon project (the Deloitte agentathon project, an orchestrator plus 4 specialist review agents for consulting deliverables, built with Python + LangGraph fan-out, a FastAPI server, and a 3-panel dashboard — all local, run via uv). Trigger on requests like "give me the kickoff prompt", "I need the context file for Pi", "regenerate CONTEXT.md", "how do I run DeliverableQA", or any mention of DeliverableQA, the agentathon project, or Pi setup for this project. Always produce the CONTEXT.md file and a compact copy-paste kickoff prompt together, even if only one is explicitly requested, since Pi needs both.
 ---
 
 # DeliverableQA Agent — kickoff skill
@@ -40,31 +40,40 @@ Stack mapping:
 - Config: YAML checklists/style rules, parsed with PyYAML
 - Prompts: the 5 system prompts live as versioned .md files under prompts/,
   loaded at runtime — not hardcoded in source
-- Dashboard: single-page HTML app with an upload -> processing -> results flow
-  (drag-and-drop a deliverable, watch it process, see the report) + Chart.js.
-  The processing screen polls, it doesn't block on one long request.
-- Server: server.py (FastAPI + uvicorn). POST /api/analyze returns a job_id
-  immediately (HTTP 200, {"status": "processing"}) and runs the pipeline as a
-  background asyncio task; GET /api/jobs/{job_id} is polled for status/result.
-  This is what makes concurrent uploads work — don't make /api/analyze block
-  until the pipeline finishes. Calls the exact same orchestrator/agents
-  functions as run_qa.py — don't fork the pipeline logic for the web path.
-- Auth: optional, opt-in via DELIVERABLEQA_TOKEN env var (see auth.py). Unset
-  means no auth at all (the default for local single-user use); set it and
-  every /api/* request needs Authorization: Bearer <token>. Never make auth
-  mandatory — that breaks the zero-friction local default.
+- Dashboard: a 3-panel live web app (dashboard/index.html), styled with
+  Tailwind CSS via CDN + Chart.js via CDN — no build step. Left panel
+  uploads a deliverable (file + engagement type) and shows the current
+  filename/refresh time, with a Clear button to reset to the empty state;
+  middle panel lists the 4 agents with per-agent finding counts; right
+  panel shows the selected agent's findings. Fetches GET /api/findings on
+  load, on Refresh, and automatically after a successful upload, so it
+  always shows the current output/findings.json without needing a rebuild.
+- Server: server.py, a FastAPI + uvicorn app. GET /api/findings reads
+  output/findings.json fresh off disk on every request (no caching);
+  DELETE /api/findings clears it (powers the dashboard's Clear button);
+  POST /api/analyze accepts a docx/pptx/pdf upload + engagement type and
+  runs the full pipeline synchronously via run_qa.run(), writing the result
+  before responding. A static mount serves dashboard/. No auth, no job
+  queue, no concurrency guard — one request blocks for as long as the real
+  Bedrock calls take. Both run_qa.py (CLI) and POST /api/analyze (browser)
+  can kick off an analysis, writing the same output/findings.json. Keep it
+  minimal — don't add auth/job-queue complexity back in unless Mat asks for it.
+- Package management: uv, not pip/venv. pyproject.toml (runtime deps + a dev
+  dependency group for pytest/pytest-asyncio) + uv.lock + .python-version.
+  `uv sync` installs everything; `uv run <cmd>` runs any command (CLI,
+  server, tests) inside the managed environment without manual activation.
 - Merge strategy: default is deterministic (orchestrator/merge.py, difflib
   similarity + location match, no LLM call). Optional LLM-driven merge
-  (orchestrator/llm_merge.py, --llm-merge on the CLI or llm_merge=true on
-  /api/analyze) calls Claude with prompts/orchestrator.md's PHASE 2
-  instructions to catch semantic duplicates worded very differently across
-  agents — it MUST fall back to the deterministic merge on any failure
-  (API error, malformed response, validation failure), never raise.
+  (orchestrator/llm_merge.py, --llm-merge on the CLI) calls Claude with
+  prompts/orchestrator.md's PHASE 2 instructions to catch semantic duplicates
+  worded very differently across agents — it MUST fall back to the
+  deterministic merge on any failure (API error, malformed response,
+  validation failure), never raise.
 - Delta/re-run mode: orchestrator/merge.py's compute_delta() compares two
   runs' findings (matched by location + description similarity — re-runs get
   fresh finding ids, matching by id never works) into resolved/still_open/new.
-  Wired via run_qa.py --previous-findings <path> and the previous_findings
-  upload field on /api/analyze.
+  Wired via run_qa.py --previous-findings <path>; the dashboard renders the
+  result as its own card whenever output/findings.json has a delta key.
 - Structured output: this Bedrock route doesn't support output_config.format
   or strict tool schemas, and a $ref/$defs Pydantic schema makes the model
   unreliably stringify nested fields. Use forced tool-use (tool_choice) with
@@ -73,26 +82,33 @@ Stack mapping:
   (llm_merge.py reuses the same pattern for its own schema).
 
 Scaffold now:
-1. Python venv + requirements.txt (langgraph, anthropic[bedrock], boto3,
-   python-docx, python-pptx, pymupdf, pyyaml, fastapi, uvicorn[standard],
-   python-multipart, pytest, pytest-asyncio)
+1. uv init + pyproject.toml (langgraph, anthropic[bedrock], boto3,
+   python-docx, python-pptx, pymupdf, pyyaml, fastapi, uvicorn[standard];
+   pytest/pytest-asyncio as a dev dependency group), then `uv sync`
 2. orchestrator/ — parse.py (raise a clear error on empty/corrupt input,
    don't return an empty section list silently), dispatch.py, merge.py
    (dedup + compute_delta), llm_merge.py (opt-in, falls back to merge.py)
 3. agents/ — one .py file per agent from CONTEXT.md's prompts, each calling the
    shared JSON finding schema via a forced tool-use call
 4. config/checklists/*.yaml and config/style_rules.yaml
-5. dashboard/ — single-page HTML app (upload/processing/results states),
-   processing screen polls GET /api/jobs/{id} rather than blocking + Chart.js
-6. server.py — FastAPI app, job-queue POST /api/analyze + GET /api/jobs/{id},
-   serves dashboard/ as static root; run_qa.py stays as the CLI entry point,
-   both call the same run() function
-7. auth.py — optional bearer-token check, opt-in via DELIVERABLEQA_TOKEN
+5. dashboard/ — 3-panel Tailwind (CDN) + Chart.js app: left panel uploads a
+   deliverable + engagement type and shows current filename/refresh time
+   with a Clear button; middle panel lists the 4 agents with counts; right
+   panel shows the selected agent's findings. Fetches GET /api/findings on
+   load, on Refresh, and after a successful upload
+6. run_qa.py — CLI entry point, calls parse -> dispatch -> merge -> report,
+   writes output/findings.json (one of two ways to kick off an analysis)
+7. server.py — FastAPI app: GET/DELETE /api/findings (reads/clears
+   output/findings.json live, no caching), POST /api/analyze (upload +
+   run the pipeline synchronously via run_qa.run()) + static mount for
+   dashboard/ (the other way to kick off an analysis, from the browser)
 8. tests/ — pytest suite covering parse.py edge cases, merge.py dedup/delta,
-   the JSON-repair logic, and server.py's job lifecycle + auth — mock the
-   Bedrock client throughout, no live API calls in the test suite
-9. Commit scaffold once it runs end-to-end on a sample doc, via both the CLI
-   and a browser upload, with the test suite green
+   the JSON-repair logic, and server.py's /api/analyze + /api/findings
+   routes — mock the Bedrock client (and run_qa.run() for the server tests)
+   throughout, no live API calls in the test suite
+9. Commit scaffold once it runs end-to-end on a sample doc via the CLI, an
+   upload through the dashboard also produces real findings with the server
+   running, and the test suite is green (`uv run pytest`)
 
 Ask me before adding any dependency beyond the ones listed above. Otherwise proceed
 autonomously through the scaffold.
@@ -100,10 +116,10 @@ autonomously through the scaffold.
 
 ## When to give deployment/environment setup
 
-If Mat asks about WSL setup, `gh`, `wrangler login`, provisioning R2/D1/Pages, or the deploy loop — read `references/deployment-setup.md` and answer from it rather than reconstructing commands from memory (exact flags matter for reproducibility across the team's machines).
+There's no cloud deployment for this project — it runs locally only (`uv sync`, then `uv run --native-tls python server.py`, then open `http://127.0.0.1:8000`), per CONTEXT.md's Tech stack section and README.md's Getting started section. If Mat asks about running it on a new machine, point him at those rather than any deployment steps — there's nothing to deploy.
 
 ## Notes
 
 - This skill is scoped to this one project — don't generalize the prompt template to other hackathon ideas unless Mat explicitly asks for that.
-- If Mat says the architecture changed (e.g. switching off Cloudflare, adding a new agent), update `assets/CONTEXT.md` in place so future regenerations stay current — don't let the bundled copy drift from what he's actually building.
+- If Mat says the architecture changed (e.g. adding a new agent, changing the merge strategy), update `assets/CONTEXT.md` in place so future regenerations stay current — don't let the bundled copy drift from what he's actually building.
 

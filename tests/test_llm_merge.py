@@ -55,6 +55,32 @@ class TestLlmMergeAndReport:
         assert result["dashboard"]["total_findings"] == 1
         assert result["detailed_report"]["sections"]["Intro"][0]["merged_from"] == ["dropped"]
 
+    async def test_restores_agent_by_id_since_llm_output_never_carries_it(self):
+        # The tool schema excludes Finding.agent (see agents/schema.py), so the LLM's
+        # merged findings never carry it -- llm_merge_and_report() must restore it by
+        # matching the finding id back against the original agent_findings.
+        agent_findings = [
+            AgentFindings(agent="consistency", findings=[_finding("c1", "Intro", "critical")]),
+            AgentFindings(agent="structure", findings=[_finding("s1", "Risks", "warning")]),
+        ]
+        client = _mock_client_returning_tool_use({
+            "findings": [
+                {"id": "c1", "location": {"page": None, "section": "Intro"}, "severity": "critical",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+                {"id": "s1", "location": {"page": None, "section": "Risks"}, "severity": "warning",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+            ]
+        })
+
+        result = await llm_merge_and_report(client, agent_findings)
+
+        findings_by_id = {
+            f["id"]: f["agent"]
+            for findings in result["detailed_report"]["sections"].values()
+            for f in findings
+        }
+        assert findings_by_id == {"c1": "consistency", "s1": "structure"}
+
     async def test_calls_with_correct_model_and_forced_tool_choice(self):
         agent_findings = [AgentFindings(agent="consistency", findings=[_finding("c1", "Intro")])]
         client = _mock_client_returning_tool_use({"findings": []})

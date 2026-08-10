@@ -25,7 +25,11 @@ def _text_overlap(a: str, b: str) -> float:
 
 
 def dedupe(agent_findings: list[AgentFindings]) -> list[Finding]:
-    all_findings = [f for af in agent_findings for f in af.findings]
+    # Stamp each finding with its originating agent here -- this is the last point
+    # where that association is known; af.findings itself never carries it.
+    all_findings = [
+        f.model_copy(update={"agent": af.agent}) for af in agent_findings for f in af.findings
+    ]
     dropped_indices: set[int] = set()
     # merged_from[i] collects the ids absorbed into all_findings[i], keyed by index
     # (not id) so a later duplicate that becomes the new "winner" still accumulates

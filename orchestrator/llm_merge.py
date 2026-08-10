@@ -61,6 +61,10 @@ async def llm_merge_and_report(client: AsyncAnthropicBedrock, agent_findings: li
     if not all_findings:
         return merge_and_report(agent_findings)
 
+    # agent is excluded from the tool schema (see agents/schema.py), so the LLM's
+    # merged findings never carry it -- restore it by id against the originals.
+    agent_by_id = {f.id: af.agent for af in agent_findings for f in af.findings}
+
     prompt = load_prompt("orchestrator")
     rendered = _render_findings_for_merge(agent_findings)
 
@@ -91,7 +95,10 @@ async def llm_merge_and_report(client: AsyncAnthropicBedrock, agent_findings: li
         for block in response.content:
             if block.type == "tool_use":
                 merged = MergedFindings.model_validate(_repair_merge_tool_input(block.input))
-                sorted_findings = sort_findings(merged.findings)
+                restored = [
+                    f.model_copy(update={"agent": agent_by_id.get(f.id)}) for f in merged.findings
+                ]
+                sorted_findings = sort_findings(restored)
                 return {
                     "dashboard": build_dashboard(sorted_findings, agent_findings),
                     "detailed_report": build_detailed_report(sorted_findings),

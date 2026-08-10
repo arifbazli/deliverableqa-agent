@@ -120,6 +120,36 @@ class TestDedupe:
         assert winner.id == "s1"  # longest description wins
         assert set(winner.merged_from) == {"c1", "lt1"}
 
+    def test_stamps_each_finding_with_its_originating_agent(self):
+        af = [
+            AgentFindings(agent="consistency", findings=[_finding("c1", "Intro", description="Numbers don't match.")]),
+            AgentFindings(agent="structure", findings=[_finding("s1", "Risks", description="Missing section.")]),
+        ]
+
+        result = dedupe(af)
+
+        by_id = {f.id: f.agent for f in result}
+        assert by_id == {"c1": "consistency", "s1": "structure"}
+
+    def test_merge_winner_keeps_its_own_agent_not_the_dropped_ones(self):
+        # Same scenario as test_same_location_similar_description_merges: the
+        # longer-description finding from language_tone wins over consistency's.
+        # The kept finding's agent must be the winner's own (language_tone), not
+        # blended with or overwritten by the duplicate it absorbed.
+        af = [
+            AgentFindings(agent="consistency", findings=[
+                _finding("c1", "Exec Summary", description="Executive summary states 18% but findings say 12%.")
+            ]),
+            AgentFindings(agent="language_tone", findings=[
+                _finding("lt1", "Exec Summary", description="Executive summary states 18% growth but findings state 12% growth here.")
+            ]),
+        ]
+
+        result = dedupe(af)
+
+        assert len(result) == 1
+        assert result[0].agent == "language_tone"
+
 
 class TestSortFindings:
     def test_sorts_by_severity_then_page_then_section(self):
@@ -204,6 +234,21 @@ class TestMergeAndReport:
         assert "dashboard" in result and "detailed_report" in result
         assert result["dashboard"]["total_findings"] == 2
         assert result["dashboard"]["pass_fail"] == "fail"
+
+    def test_agent_survives_into_the_serialized_detailed_report(self):
+        af = [
+            AgentFindings(agent="consistency", findings=[_finding("c1", "Intro", severity="critical")]),
+            AgentFindings(agent="structure", findings=[_finding("s1", "Risks", severity="warning")]),
+        ]
+
+        result = merge_and_report(af)
+
+        findings_by_id = {
+            f["id"]: f["agent"]
+            for findings in result["detailed_report"]["sections"].values()
+            for f in findings
+        }
+        assert findings_by_id == {"c1": "consistency", "s1": "structure"}
 
 
 class TestComputeDelta:

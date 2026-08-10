@@ -4,6 +4,7 @@ from typing import Literal
 
 from anthropic import AsyncAnthropicBedrock
 from pydantic import BaseModel
+from pydantic.json_schema import SkipJsonSchema
 
 MODEL = "global.anthropic.claude-sonnet-5"
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -26,6 +27,11 @@ class Finding(BaseModel):
     evidence: str
     proposed_fix: str
     merged_from: list[str] = []
+    # Set server-side during merge (dedupe() stamps it from the owning AgentFindings
+    # batch) -- excluded from the tool-use schema so agents never fill it in
+    # themselves; each agent already declares its identity once on AgentFindings.agent,
+    # and asking it to repeat that per-finding would just be a redundant hallucination risk.
+    agent: SkipJsonSchema[AgentName | None] = None
 
 
 class AgentFindings(BaseModel):

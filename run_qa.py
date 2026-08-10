@@ -13,6 +13,10 @@ from orchestrator.parse import parse_document, render_document_context
 REPO_ROOT = Path(__file__).resolve().parent
 CONFIG_DIR = REPO_ROOT / "config"
 ENGAGEMENT_TYPES = {"advisory", "audit", "tax", "consulting"}
+# Generous ceiling for a single Bedrock call -- the SDK's own default (10 min)
+# is already high, but a synchronous web upload against a large document has
+# no other backstop, so give it more headroom rather than risk a timeout mid-run.
+BEDROCK_TIMEOUT_SECONDS = 20 * 60
 
 
 def load_checklist(engagement_type: str) -> str:
@@ -32,13 +36,14 @@ async def run(
     output_dir: Path,
     previous_report: dict | None = None,
     use_llm_merge: bool = False,
+    document_name: str | None = None,
 ) -> dict:
     sections = parse_document(document_path)
     checklist_yaml = load_checklist(engagement_type)
     style_rules_yaml = load_style_rules()
     document_context = render_document_context(sections, engagement_type, checklist_yaml, style_rules_yaml)
 
-    client = AsyncAnthropicBedrock()
+    client = AsyncAnthropicBedrock(timeout=BEDROCK_TIMEOUT_SECONDS)
     agent_findings = await run_agents(client, document_context)
     if use_llm_merge:
         result = await llm_merge_and_report(client, agent_findings)
@@ -47,6 +52,9 @@ async def run(
 
     if previous_report is not None:
         result["delta"] = compute_delta(previous_report, result)
+
+    result["document_name"] = document_name or document_path.name
+    result["engagement_type"] = engagement_type
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "findings.json"
@@ -103,6 +111,7 @@ def main() -> None:
         counts = result["delta"]["counts"]
         print(f"Delta vs previous run: {counts['resolved']} resolved, {counts['still_open']} still open, {counts['new']} new")
     print(f"Written to: {args.output_dir / 'findings.json'}")
+    print("View it at http://127.0.0.1:8000 (start the server with: uv run server.py)")
 
 
 if __name__ == "__main__":
