@@ -64,6 +64,8 @@ async def llm_merge_and_report(client: AsyncAnthropicBedrock, agent_findings: li
     # agent is excluded from the tool schema (see agents/schema.py), so the LLM's
     # merged findings never carry it -- restore it by id against the originals.
     agent_by_id = {f.id: af.agent for af in agent_findings for f in af.findings}
+    location_by_id = {f.id: f.location for f in all_findings}
+    valid_ids = set(location_by_id)
 
     prompt = load_prompt("orchestrator")
     rendered = _render_findings_for_merge(agent_findings)
@@ -94,7 +96,39 @@ async def llm_merge_and_report(client: AsyncAnthropicBedrock, agent_findings: li
         )
         for block in response.content:
             if block.type == "tool_use":
+                # Fail-strict by design: any single malformed/invalid finding in the
+                # LLM's response (a missing field, an invented id, a rewritten
+                # location) discards the ENTIRE merge rather than salvaging the
+                # findings that did validate. For a partner-facing QA report, a
+                # wrong-but-plausible-looking merge is worse than paying for one
+                # extra Bedrock call's worth of latency and falling back to the
+                # deterministic merge, which is always structurally safe -- it can
+                # only fail to catch a duplicate, never fabricate or misplace one.
                 merged = MergedFindings.model_validate(_repair_merge_tool_input(block.input))
+
+                invented_ids = [f.id for f in merged.findings if f.id not in valid_ids]
+                if invented_ids:
+                    raise ValueError(
+                        f"LLM merge returned finding id(s) not present in the original "
+                        f"input: {invented_ids}"
+                    )
+
+                for f in merged.findings:
+                    # A finding with no merged_from wasn't a merge product -- it
+                    # should be one specific original finding, untouched. If its
+                    # location drifted from that original, the LLM silently
+                    # rewrote it. We warn rather than reject: unlike an invented
+                    # id (fabricated content, never trustworthy), a location
+                    # drift on an otherwise-correct finding is more likely the
+                    # model normalizing a section label than a hallucination --
+                    # discarding a good merge over it would cost more (losing
+                    # real cross-section dedup work) than it protects.
+                    if not f.merged_from and f.location != location_by_id.get(f.id):
+                        logger.warning(
+                            "LLM merge changed the location of kept finding %r: was %r, now %r.",
+                            f.id, location_by_id.get(f.id), f.location,
+                        )
+
                 restored = [
                     f.model_copy(update={"agent": agent_by_id.get(f.id)}) for f in merged.findings
                 ]

@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from agents.schema import AgentFindings, Finding, Location
 from orchestrator.llm_merge import llm_merge_and_report
+from orchestrator.merge import merge_and_report
 
 
 def _finding(id, section, severity="warning", description="d"):
@@ -137,3 +138,137 @@ class TestLlmMergeAndReport:
         result = await llm_merge_and_report(client, agent_findings)
 
         assert result["dashboard"]["total_findings"] == 1
+
+    async def test_llm_merge_catches_a_duplicate_the_deterministic_merge_structurally_cannot(self):
+        # Mirrors a real finding from a live Bedrock run (audit_sample.docx) where
+        # three agents independently flagged the same underlying issue -- Finding
+        # 3's vagueness -- under three different section labels and completely
+        # different wording. Documents WHY this module exists: dedupe()'s
+        # exact-location gate can never even compare these, no matter how similar
+        # the wording is, since they don't share a location.
+        agent_findings = [
+            AgentFindings(agent="structure", findings=[
+                Finding(
+                    id="s1", location=Location(page=None, section="Findings"), severity="warning",
+                    category="underdeveloped_section",
+                    description="Finding 3 does not state the control tested, the result, or the evidence basis.",
+                    evidence="Finding 3: there were some issues with how invoices get processed.",
+                    proposed_fix="Expand Finding 3 to identify the specific control tested.",
+                ),
+            ]),
+            AgentFindings(agent="language_tone", findings=[
+                Finding(
+                    id="lt1", location=Location(page=None, section="Recommendations"), severity="critical",
+                    category="Vague recommendation",
+                    description="The recommendation for Finding 3 gives no specific action, owner, or timeline.",
+                    evidence="For Finding 3, the process should be improved.",
+                    proposed_fix="The AP Manager should implement a mandatory three-way match control.",
+                ),
+            ]),
+            AgentFindings(agent="consistency", findings=[
+                Finding(
+                    id="c1", location=Location(page=None, section="Findings vs. Recommendations"), severity="critical",
+                    category="Unsupported/Contradictory Recommendation Mapping",
+                    description="Finding 3 is vague with no evidence basis, and its recommendation is equally non-specific.",
+                    evidence="Finding 3: there were some issues... | Recommendation 3: the process should be improved.",
+                    proposed_fix="Revise Finding 3 to state the specific control tested.",
+                ),
+            ]),
+        ]
+
+        # Deterministic merge: all three sit at different locations, so dedupe()'s
+        # exact-location gate never compares them -- they survive untouched.
+        deterministic_result = merge_and_report(agent_findings)
+        assert deterministic_result["dashboard"]["total_findings"] == 3
+
+        # LLM merge: recognizes the semantic overlap across section labels and
+        # collapses all three into one synthesized finding.
+        client = _mock_client_returning_tool_use({
+            "findings": [
+                {
+                    "id": "c1",
+                    "location": {"page": None, "section": "Findings vs. Recommendations"},
+                    "severity": "critical",
+                    "category": "Vague/unsupported finding and recommendation",
+                    "description": "Finding 3 is vague, lacks a specific control and evidence basis, "
+                                    "and its recommendation is equally non-actionable.",
+                    "evidence": "Finding 3: there were some issues... | Recommendation 3: the process should be improved.",
+                    "proposed_fix": "Revise Finding 3 to state the specific control tested, the result, "
+                                    "and the evidence basis, with a specific corrective action.",
+                    "merged_from": ["s1", "lt1"],
+                },
+            ]
+        })
+
+        llm_result = await llm_merge_and_report(client, agent_findings)
+
+        assert llm_result["dashboard"]["total_findings"] == 1
+        merged_finding = llm_result["detailed_report"]["sections"]["Findings vs. Recommendations"][0]
+        assert set(merged_finding["merged_from"]) == {"s1", "lt1"}
+        assert merged_finding["id"] == "c1"
+
+    async def test_falls_back_when_llm_invents_a_finding_id_not_in_original_input(self):
+        agent_findings = [AgentFindings(agent="consistency", findings=[_finding("c1", "Intro", "critical")])]
+        client = _mock_client_returning_tool_use({
+            "findings": [
+                {"id": "invented-id", "location": {"page": None, "section": "Intro"}, "severity": "critical",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+            ]
+        })
+
+        result = await llm_merge_and_report(client, agent_findings)
+
+        # Falls back to the deterministic merge -- the invented id is never trusted.
+        findings_by_id = {
+            f["id"]: f for findings in result["detailed_report"]["sections"].values() for f in findings
+        }
+        assert result["dashboard"]["total_findings"] == 1
+        assert "c1" in findings_by_id
+        assert "invented-id" not in findings_by_id
+
+    async def test_location_drift_on_a_kept_finding_warns_but_does_not_fall_back(self, caplog):
+        # Documents the choice made in llm_merge_and_report(): unlike an invented
+        # id, a drifted location on an otherwise-untouched finding is logged, not
+        # treated as disqualifying.
+        agent_findings = [AgentFindings(agent="consistency", findings=[_finding("c1", "Intro", "critical")])]
+        client = _mock_client_returning_tool_use({
+            "findings": [
+                {"id": "c1", "location": {"page": None, "section": "Somewhere Else"}, "severity": "critical",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+            ]
+        })
+
+        caplog.set_level("WARNING")
+        result = await llm_merge_and_report(client, agent_findings)
+
+        # Not a fallback -- the deterministic path would have kept the original
+        # "Intro" location, so seeing "Somewhere Else" proves the LLM's output won.
+        assert result["dashboard"]["total_findings"] == 1
+        assert "Somewhere Else" in result["detailed_report"]["sections"]
+        assert any("changed the location" in record.message for record in caplog.records)
+
+    async def test_one_malformed_finding_among_many_good_ones_discards_the_entire_merge(self):
+        # Fail-strict by design (see llm_merge_and_report's inline comment): pins
+        # down that a single malformed finding invalidates the whole batch, even
+        # though the other finding in this response was perfectly valid -- so a
+        # future change to add partial recovery is a deliberate decision, not an
+        # accidental regression.
+        agent_findings = [
+            AgentFindings(agent="consistency", findings=[
+                _finding("c1", "Intro", "critical"),
+                _finding("c2", "Risks", "warning"),
+            ]),
+        ]
+        client = _mock_client_returning_tool_use({
+            "findings": [
+                {"id": "c1", "location": {"page": None, "section": "Intro"}, "severity": "critical",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+                {"id": "c2"},  # missing required fields -- malformed
+            ]
+        })
+
+        result = await llm_merge_and_report(client, agent_findings)
+
+        # Falls back to the deterministic merge of BOTH original findings -- not a
+        # partial merge that kept just the one valid LLM-returned finding (c1).
+        assert result["dashboard"]["total_findings"] == 2
