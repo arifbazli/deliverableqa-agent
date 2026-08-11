@@ -267,11 +267,11 @@ uv run --native-tls pytest
 - **Deterministic merge is the default, by design, not because the LLM path is unfinished.** `prompts/orchestrator.md`'s PHASE 2 instructions only run under the opt-in `--llm-merge` flag — every run still pays for one extra Bedrock call and adds latency, which isn't worth it for the common case where agents rarely produce cross-section duplicates. Reach for `--llm-merge` specifically when you suspect two agents flagged the same underlying issue under different section labels or wording (see Merge strategies above for what it catches that the deterministic pass structurally can't).
 - **Scanned/image-only documents aren't supported — by design, not by oversight.** `parse.py` extracts text via `python-docx`/`python-pptx`/`PyMuPDF`, none of which do OCR. A scanned PDF or an image-based deck with no extractable text now fails fast with a clear `DocumentParseError` ("OCR isn't supported") instead of silently producing an empty or misleading report — that failure mode was the actual bug fixed; adding OCR itself would mean a new system dependency (e.g. Tesseract) and is a deliberately separate decision, not assumed as part of this fix.
 - **No auth, no job queue, no concurrency guard.** `/api/analyze` is a plain async endpoint with no lock — two uploads submitted at the same time would run concurrently and race writing `output/findings.json`, rather than queue. Fine for the intended local single-user use; a second person hitting the same server (or one impatient double-click) is the actual risk, not something this version guards against.
-- **`server.py` must be restarted manually if the machine reboots.** There's no autostart wired up by default; see [Auto-start on login (Windows)](#auto-start-on-login-windows) below if you want it to survive a reboot without manual intervention.
+- **`server.py` isn't autostarted by default on a fresh checkout.** See [Auto-start on login (Windows)](#auto-start-on-login-windows) below to wire it up — a per-user Startup-folder script if Task Scheduler is policy-blocked (common on domain-joined machines), a scheduled task otherwise.
 
 ## Auto-start on login (Windows)
 
-To have `server.py` launch automatically whenever you log in (so it survives a reboot without you remembering to run it), register it as a Windows scheduled task using `uv run`'s `--directory` flag so it always runs against this project regardless of the shell's current directory:
+To have `server.py` launch automatically whenever you log in (so it survives a reboot without you remembering to run it), try a Windows scheduled task first:
 
 ```powershell
 schtasks /create /tn "DeliverableQA Dashboard" /tr "C:\Users\muhaabubakar\.local\bin\uv.exe run --directory C:\Users\muhaabubakar\PyCharmMiscProject\deliverableqa-agent python server.py" /sc onlogon /rl limited
@@ -282,6 +282,22 @@ schtasks /create /tn "DeliverableQA Dashboard" /tr "C:\Users\muhaabubakar\.local
 - Adjust the two paths if your `uv` install location or checkout path differ from the ones shown — confirm with `(Get-Command uv).Source` and `(Get-Location).Path` from inside the repo.
 
 To remove it later: `schtasks /delete /tn "DeliverableQA Dashboard" /f`. To check it's registered: `schtasks /query /tn "DeliverableQA Dashboard"`.
+
+**On a domain-joined/corporate machine, this may fail with `ERROR: Access is denied.`** — Group Policy can block Task Scheduler task *creation* for non-admin accounts even though querying/viewing existing tasks still works (confirmed: both `schtasks /create` and PowerShell's `Register-ScheduledTask` are denied the same way). If that happens, use the Startup-folder fallback instead — it needs no special permissions, at the cost of only running while you're logged in (not before login, and it stops if you log out):
+
+```powershell
+$startup = [Environment]::GetFolderPath("Startup")
+$lnkPath = Join-Path $startup "DeliverableQA-Dashboard.lnk"
+$sh = New-Object -ComObject WScript.Shell
+$lnk = $sh.CreateShortcut($lnkPath)
+$lnk.TargetPath = "C:\Users\muhaabubakar\.local\bin\uv.exe"
+$lnk.Arguments = "run python server.py"
+$lnk.WorkingDirectory = "C:\Users\muhaabubakar\PyCharmMiscProject\deliverableqa-agent"
+$lnk.WindowStyle = 7  # 7 = minimized
+$lnk.Save()
+```
+
+Use a `.lnk` shortcut here, not a `.vbs`/`.bat` wrapper — confirmed on this project's own machine that a VBScript launcher in the Startup folder ran fine every time it was invoked manually, but silently never fired on a real reboot + fresh login, with no corresponding block/error in Defender, Avecto Defendpoint (BeyondTrust Privilege Management — common on domain-joined corporate machines), or Event Viewer anywhere. A `.lnk` pointing directly at `uv.exe` avoids the WScript/`WshShell.Run` indirection entirely — confirmed reliable at a real boot in the same folder (an existing unrelated `.lnk` in the same Startup folder launched successfully every reboot; a `.vbs` sitting right next to it did not). The tradeoff: `WindowStyle = 7` minimizes the console window instead of fully hiding it (a `.lnk` has no equivalent to `WshShell.Run`'s silent flag), so you'll see a minimized `server.py` window in the taskbar after login. Adjust the two hardcoded paths if your checkout or `uv` install location differ. To remove it, delete the `.lnk` from the Startup folder (`shell:startup` in the Run dialog opens it in Explorer).
 
 ## Agent skill (Pi + Claude Code)
 
