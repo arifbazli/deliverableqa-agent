@@ -11,3 +11,4 @@ __pycache__/
 *.pyc
 output/
 dashboard/findings.json
+server.log
