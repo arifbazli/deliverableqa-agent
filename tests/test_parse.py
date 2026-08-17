@@ -1,3 +1,4 @@
+import io
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -46,6 +47,27 @@ def _write_pdf(path: Path, pages: list[str]) -> None:
             page.insert_text((72, 72), text)
     document.save(str(path))
     document.close()
+
+
+def _tiny_png_bytes() -> bytes:
+    document = pymupdf.open()
+    page = document.new_page(width=50, height=50)
+    png_bytes = page.get_pixmap().tobytes("png")
+    document.close()
+    return png_bytes
+
+
+def _write_image_only_docx(path: Path) -> None:
+    document = docx.Document()
+    document.add_picture(io.BytesIO(_tiny_png_bytes()))
+    document.save(str(path))
+
+
+def _write_pptx_image_only_slide(path: Path) -> None:
+    presentation = pptx.Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])  # blank layout
+    slide.shapes.add_picture(io.BytesIO(_tiny_png_bytes()), 0, 0)
+    presentation.save(str(path))
 
 
 class TestParseDocx:
@@ -169,7 +191,7 @@ class TestParsePdf:
             parse_document(path)
 
 
-class TestOcrFallback:
+class TestPdfOcrFallback:
     async def test_falls_back_to_vision_when_no_text_extracted(self, tmp_path, monkeypatch):
         path = tmp_path / "doc.pdf"
         _write_pdf(path, ["", ""])
@@ -208,7 +230,46 @@ class TestOcrFallback:
         with pytest.raises(DocumentParseError, match="No readable text"):
             await parse_document_with_ocr_fallback(path, client=AsyncMock())
 
-    async def test_non_pdf_suffix_reraises_without_calling_client(self, tmp_path, monkeypatch):
+    async def test_unsupported_extension_reraises_without_calling_client(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.txt"
+        path.write_text("hello")
+        mock_transcribe = AsyncMock()
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", mock_transcribe)
+
+        with pytest.raises(DocumentParseError, match="Unsupported file type"):
+            await parse_document_with_ocr_fallback(path, client=AsyncMock())
+        mock_transcribe.assert_not_awaited()
+
+
+class TestDocxOcrFallback:
+    async def test_falls_back_to_vision_for_image_only_docx(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.docx"
+        _write_image_only_docx(path)
+        mock_transcribe = AsyncMock(return_value="Transcribed docx image.")
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert sections[0].section == "Image 1"
+        assert sections[0].page is None
+        assert sections[0].text == "Transcribed docx image."
+        mock_transcribe.assert_awaited_once()
+
+    async def test_raises_when_docx_image_transcription_is_empty(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.docx"
+        _write_image_only_docx(path)
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", AsyncMock(return_value=""))
+
+        with pytest.raises(DocumentParseError, match="No readable text"):
+            await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+    async def test_completely_empty_docx_raises_without_calling_client(self, tmp_path, monkeypatch):
+        # No text AND no images at all -- distinct from the "image with empty
+        # transcription" case above: here transcribe_page_image should never even
+        # be reached, since there's nothing to send it. This also confirms the
+        # related_parts fix: a blank docx still contains docProps/thumbnail.jpeg
+        # (an image/* part) at the package level, which must NOT be picked up.
         path = tmp_path / "doc.docx"
         _write_docx(path, [])
         mock_transcribe = AsyncMock()
@@ -217,6 +278,56 @@ class TestOcrFallback:
         with pytest.raises(DocumentParseError, match="No readable text"):
             await parse_document_with_ocr_fallback(path, client=AsyncMock())
         mock_transcribe.assert_not_awaited()
+
+
+class TestPptxOcrFallback:
+    async def test_enriches_image_only_slide_via_vision(self, tmp_path, monkeypatch):
+        path = tmp_path / "deck.pptx"
+        _write_pptx_image_only_slide(path)
+        mock_transcribe = AsyncMock(return_value="Transcribed slide image.")
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_images", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert sections[0].section == "Slide 1"
+        assert sections[0].page == 1
+        assert sections[0].text == "Transcribed slide image."
+        mock_transcribe.assert_awaited_once()
+
+    async def test_real_text_slides_are_never_sent_to_vision(self, tmp_path, monkeypatch):
+        path = tmp_path / "deck.pptx"
+        _write_pptx(path, [["Slide One", "body"]])
+        mock_transcribe = AsyncMock()
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_images", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert sections[0].section == "Slide 1: Slide One"
+        mock_transcribe.assert_not_awaited()
+
+    async def test_blank_slide_with_no_picture_keeps_placeholder(self, tmp_path, monkeypatch):
+        path = tmp_path / "deck.pptx"
+        _write_pptx(path, [[]])  # blank layout -- no text, no picture either
+        mock_transcribe = AsyncMock()
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_images", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert "no text content" in sections[0].text
+        mock_transcribe.assert_not_awaited()
+
+    async def test_slide_transcription_coming_back_empty_keeps_placeholder(self, tmp_path, monkeypatch):
+        path = tmp_path / "deck.pptx"
+        _write_pptx_image_only_slide(path)
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_images", AsyncMock(return_value=""))
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert "no text content" in sections[0].text
 
     async def test_successful_normal_parse_never_touches_the_client(self, tmp_path, monkeypatch):
         path = tmp_path / "doc.pdf"

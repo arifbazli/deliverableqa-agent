@@ -7,8 +7,14 @@ import docx
 import pptx
 import pymupdf
 from anthropic import AsyncAnthropicBedrock
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-from agents.schema import transcribe_page_image
+from agents.schema import transcribe_page_image, transcribe_page_images
+
+# The literal text parse_pptx() gives a slide with no text shapes -- shared with
+# ocr_image_only_slides() below, which looks for this exact marker to decide
+# which already-parsed sections are candidates for vision OCR.
+PPTX_BLANK_SLIDE_TEXT = "(no text content on this slide)"
 
 # A US Letter page at this DPI renders to ~1275x1650px, already close to
 # Anthropic's own recommended long-side (~1568px) for vision cost/quality
@@ -34,11 +40,15 @@ class Section:
     text: str
 
 
-def parse_docx(path: Path) -> list[Section]:
+def _open_docx(path: Path) -> docx.Document:
     try:
-        document = docx.Document(str(path))
+        return docx.Document(str(path))
     except Exception as e:
         raise DocumentParseError(f"Could not open this file as a Word document: {e}") from e
+
+
+def parse_docx(path: Path) -> list[Section]:
+    document = _open_docx(path)
 
     sections: list[Section] = []
     current_heading = "Document"
@@ -79,7 +89,7 @@ def parse_pptx(path: Path) -> list[Section]:
             body = "\n".join(texts)
             sections.append(Section(section=f"Slide {index}: {title}", page=index, text=body))
         else:
-            sections.append(Section(section=f"Slide {index}", page=index, text="(no text content on this slide)"))
+            sections.append(Section(section=f"Slide {index}", page=index, text=PPTX_BLANK_SLIDE_TEXT))
     return sections
 
 
@@ -124,6 +134,67 @@ async def ocr_scanned_pdf(path: Path, client: AsyncAnthropicBedrock) -> list[Sec
     return sections
 
 
+async def ocr_scanned_docx(path: Path, client: AsyncAnthropicBedrock) -> list[Section]:
+    """For a .docx with zero extractable text (e.g. a scanned page pasted in as an
+    image) -- transcribes every embedded image in the package, since docx has no
+    page concept to key sections off the way pptx (slides) and pdf (pages) do."""
+    document = _open_docx(path)
+    # related_parts (not package.iter_parts()) -- scoped to what word/document.xml itself
+    # references, so it excludes package-level assets like docProps/thumbnail.jpeg, which
+    # is an image/* part present in every docx, blank or not.
+    image_parts = [part for part in document.part.related_parts.values() if part.content_type.startswith("image/")]
+    semaphore = asyncio.Semaphore(OCR_CONCURRENCY_LIMIT)
+
+    async def transcribe(index: int, part) -> Section | None:
+        image_b64 = base64.b64encode(part.blob).decode()
+        async with semaphore:
+            text = await transcribe_page_image(client, image_b64, media_type=part.content_type)
+        return Section(section=f"Image {index}", page=None, text=text) if text else None
+
+    results = await asyncio.gather(*(transcribe(n, part) for n, part in enumerate(image_parts, start=1)))
+
+    sections = [s for s in results if s is not None]
+    if not sections:
+        raise DocumentParseError(
+            "No readable text was found in this document, even after attempting OCR via "
+            "Claude vision on its embedded images. It may be blank, corrupted, or too "
+            "low-resolution to read."
+        )
+    return sections
+
+
+async def ocr_image_only_slides(path: Path, sections: list[Section], client: AsyncAnthropicBedrock) -> list[Section]:
+    """Best-effort enrichment for an already-successful pptx parse: parse_pptx() never
+    raises (a slide with no text still gets a PPTX_BLANK_SLIDE_TEXT placeholder, since a
+    deck having *some* image-only slides is normal, not a failure) -- this replaces just
+    those placeholder sections with vision-transcribed text where the slide actually has
+    a picture to transcribe, leaving every other section (and slides with genuinely no
+    picture either) untouched."""
+    try:
+        presentation = pptx.Presentation(str(path))
+    except Exception:
+        return sections  # parse_document() already opened this file once successfully
+
+    semaphore = asyncio.Semaphore(OCR_CONCURRENCY_LIMIT)
+
+    async def enrich(section: Section) -> Section:
+        if section.text != PPTX_BLANK_SLIDE_TEXT or section.page is None:
+            return section
+        slide = presentation.slides[section.page - 1]
+        images = [
+            (base64.b64encode(shape.image.blob).decode(), shape.image.content_type)
+            for shape in slide.shapes
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+        ]
+        if not images:
+            return section
+        async with semaphore:
+            text = await transcribe_page_images(client, images)
+        return Section(section=section.section, page=section.page, text=text) if text else section
+
+    return list(await asyncio.gather(*(enrich(s) for s in sections)))
+
+
 def parse_document(path: Path) -> list[Section]:
     suffix = path.suffix.lower()
     if suffix == ".docx":
@@ -144,14 +215,24 @@ def parse_document(path: Path) -> list[Section]:
 
 
 async def parse_document_with_ocr_fallback(path: Path, client: AsyncAnthropicBedrock) -> list[Section]:
-    """Like parse_document(), but falls back to Claude-vision OCR for a PDF with no
-    extractable text instead of raising immediately -- see ocr_scanned_pdf()."""
+    """Like parse_document(), but reaches for Claude-vision OCR instead of giving up on a
+    scanned/image-only document -- see ocr_scanned_pdf(), ocr_scanned_docx(), and
+    ocr_image_only_slides() for how each format's trigger condition differs (a pdf/docx
+    with zero text raises and is retried; a pptx never raises in the first place, since a
+    slide with no text already gets a placeholder section today, so it's enriched instead)."""
+    suffix = path.suffix.lower()
     try:
-        return parse_document(path)
+        sections = parse_document(path)
     except DocumentParseError:
-        if path.suffix.lower() != ".pdf":
-            raise
-        return await ocr_scanned_pdf(path, client)
+        if suffix == ".pdf":
+            return await ocr_scanned_pdf(path, client)
+        if suffix == ".docx":
+            return await ocr_scanned_docx(path, client)
+        raise
+
+    if suffix == ".pptx":
+        return await ocr_image_only_slides(path, sections, client)
+    return sections
 
 
 def render_document_context(sections: list[Section], engagement_type: str, checklist_yaml: str, style_rules_yaml: str) -> str:

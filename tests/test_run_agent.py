@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agents.schema import run_agent, transcribe_page_image
+from agents.schema import run_agent, transcribe_page_image, transcribe_page_images
 
 
 def _mock_client_returning(content_blocks, stop_reason="tool_use"):
@@ -92,3 +92,23 @@ class TestTranscribePageImage:
         result = await transcribe_page_image(client, "base64data")
 
         assert result == ""
+
+
+class TestTranscribePageImages:
+    async def test_sends_one_image_block_per_image_plus_one_text_block(self):
+        client = _mock_client_returning([_text_block("text")], stop_reason="end_turn")
+
+        await transcribe_page_images(client, [("img1", "image/png"), ("img2", "image/jpeg")])
+
+        content = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        image_blocks = [b for b in content if b["type"] == "image"]
+        assert [b["source"]["data"] for b in image_blocks] == ["img1", "img2"]
+        assert [b["source"]["media_type"] for b in image_blocks] == ["image/png", "image/jpeg"]
+        assert content[-1]["type"] == "text"
+
+    async def test_returns_concatenated_text(self):
+        client = _mock_client_returning([_text_block("a"), _text_block("b")], stop_reason="end_turn")
+
+        result = await transcribe_page_images(client, [("img1", "image/png")])
+
+        assert result == "ab"
