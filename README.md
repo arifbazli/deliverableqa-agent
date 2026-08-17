@@ -195,11 +195,11 @@ $lnk.Save()
 
 ## Known limitations
 
-- **Scanned/image-only documents are OCR'd via Claude vision** — a PDF with no extractable text has each page rendered to an image and transcribed; a `.docx`/`.pptx` with no text has its embedded picture(s) transcribed directly (no page-rendering primitive needed for those formats). All three reuse the same Bedrock client/model already used for review — no new dependency, service, or credential. Measured on a real fixture: byte-accurate transcription, ~$0.0075 and ~2-6s per page/image/slide. Only fires when extraction would otherwise come back with nothing usable — a mostly-real-text document with one scanned page or slide mixed in is unaffected either way.
+- **Scanned/image-only pages are OCR'd via Claude vision** — same Bedrock client/model as review, ~$0.0075 and a few seconds per page/image/slide; only triggers when normal extraction finds nothing.
 - **Single local user** — no auth, no job queue; concurrent uploads can race.
 - **`--llm-merge` is opt-in** — roughly 2x latency and ~$0.09/call; only worth it when you suspect a cross-section duplicate the default merge structurally can't see.
 - **Some server errors return a bare HTTP 500** — check `server.log` (or terminal output) for the real traceback.
-- **Delta matching (`--previous-findings`) can miss a finding that's both reworded and relabeled to a new section between runs.**
+- **Delta matching** (`--previous-findings`) can miss a finding that's both reworded and relabeled to a new section between runs.
 
 ## Agent skill (Pi + Claude Code)
 
