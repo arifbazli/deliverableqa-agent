@@ -12,3 +12,4 @@ __pycache__/
 output/
 dashboard/findings.json
 server.log
+server-error.log

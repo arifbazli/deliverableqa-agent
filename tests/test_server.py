@@ -58,6 +58,41 @@ class TestAnalyze:
         assert resp.status_code == 400
         assert "Unsupported file type" in resp.json()["detail"]
 
+    def test_credentials_runtime_error_returns_a_specific_message(self, monkeypatch):
+        async def _fake_run(*a, **kw):
+            raise RuntimeError("could not resolve credentials from session")
+
+        monkeypatch.setattr(server, "run", _fake_run)
+        client = TestClient(server.app)
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 502
+        assert "AWS credentials" in resp.json()["detail"]
+
+    def test_unexpected_exception_returns_a_message_instead_of_a_bare_500(self, monkeypatch, caplog):
+        async def _fake_run(*a, **kw):
+            raise KeyError("some_unexpected_key")
+
+        monkeypatch.setattr(server, "run", _fake_run)
+        client = TestClient(server.app)
+
+        caplog.set_level("ERROR")
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 500
+        assert "KeyError" in resp.json()["detail"]
+        assert "server.log" in resp.json()["detail"]
+        assert any("Unhandled error" in record.message for record in caplog.records)
+
 
 class TestClearFindings:
     def test_deletes_existing_findings_file(self, monkeypatch, tmp_path):

@@ -83,6 +83,7 @@ Local-only — no cloud deployment, no client data leaves the machine.
 deliverableqa-agent/
 ├── run_qa.py              # CLI: parse -> agents -> merge -> report -> findings.json
 ├── server.py              # FastAPI: /api/findings, /api/analyze, /api/clear + dashboard
+├── start-hidden.ps1       # Windows Startup-folder launcher (see Auto-start below)
 ├── pyproject.toml / uv.lock / .python-version
 ├── CONTEXT.md             # full build spec, agent prompts, schema
 │
@@ -174,20 +175,21 @@ uv run pytest
 
 ## Auto-start on login (Windows)
 
+`start-hidden.ps1` (repo root) launches the server via `Start-Process -WindowStyle Hidden` targeting `uv.exe` directly — no wrapping console process stays alive for the server's session, so even if a window briefly flashes (a known `-WindowStyle Hidden` quirk at logon time) and gets closed, the server keeps running independently. Logs go to `server.log` (stdout) and `server-error.log` (stderr) since there's no console to watch.
+
 ```powershell
 $startup = [Environment]::GetFolderPath("Startup")
 $lnkPath = Join-Path $startup "DeliverableQA-Dashboard.lnk"
 $sh = New-Object -ComObject WScript.Shell
 $lnk = $sh.CreateShortcut($lnkPath)
 $lnk.TargetPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-$lnk.Arguments = '-WindowStyle Hidden -Command "Set-Location ''C:\path\to\deliverableqa-agent''; uv run python server.py >> server.log 2>&1"'
+$lnk.Arguments = '-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\path\to\deliverableqa-agent\start-hidden.ps1"'
 $lnk.WorkingDirectory = "C:\path\to\deliverableqa-agent"
 $lnk.Save()
 ```
 
-Drops a shortcut in your Startup folder that launches the server with a hidden window on login; output goes to `server.log` since there's no console to watch.
-
-- Works without admin rights — a Task Scheduler equivalent is often blocked by Group Policy on corporate machines.
+- Works without admin rights — Task Scheduler and Windows Services both require elevation that's typically Group Policy-blocked on corporate machines; this Startup-folder `.lnk` needs neither.
+- Verified the actual failure mode this fixes: an earlier version had the server run inline inside the `.lnk`'s own hidden `powershell.exe`, which showed a persistent visible window on every real reboot (not just a brief flash) and died when that window was closed. Confirmed the fix by killing the process that would carry any visible window (`uv.exe`) outright — the server (its `python.exe` child) kept running and serving requests regardless.
 - AWS credentials must be persisted as User/Machine environment variables (`[Environment]::SetEnvironmentVariable(...)`) — a freshly-launched process won't inherit credentials set only in one terminal session.
 - Remove by deleting the `.lnk` from `shell:startup`.
 

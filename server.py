@@ -1,3 +1,4 @@
+import logging
 import tempfile
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from run_qa import ENGAGEMENT_TYPES, REPO_ROOT, run
+
+logger = logging.getLogger(__name__)
 
 FINDINGS_PATH = REPO_ROOT / "output" / "findings.json"
 ALLOWED_SUFFIXES = {".docx", ".pptx", ".pdf"}
@@ -52,6 +55,19 @@ async def analyze(file: UploadFile = File(...), engagement_type: str = Form(...)
         raise HTTPException(502, "Could not reach Claude on Bedrock — check AWS credentials and network.")
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except Exception as e:
+        # Anything not already handled above (e.g. AWS credentials expiring
+        # mid-session) used to surface as a bare HTTP 500 with no detail --
+        # the dashboard just showed "Server returned HTTP 500" and the only
+        # way to find out why was to already know to check server.log.
+        if isinstance(e, RuntimeError) and "credentials" in str(e).lower():
+            raise HTTPException(
+                502,
+                "AWS credentials could not be resolved — check they're set and still valid "
+                "(env vars, ~/.aws/credentials, or an active SSO session).",
+            )
+        logger.exception("Unhandled error during analyze()")
+        raise HTTPException(500, f"Analysis failed ({type(e).__name__}): {e} — see server.log for the full traceback.")
     finally:
         tmp_path.unlink(missing_ok=True)
 
