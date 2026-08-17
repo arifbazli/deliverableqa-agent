@@ -14,7 +14,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -167,8 +167,11 @@
             <div id="deltaBody" class="space-y-6"></div>
           </div>
 
-          <!-- Hidden per request: "Findings by severity" chart. Not deleted -- remove
-               the `hidden` class below to restore it. -->
+          <!-- Hidden per request: "Findings by severity" chart. Not deleted -- to
+               restore: remove the `hidden` class below, re-add
+               <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script> in
+               <head>, and restore the CHART_COLORS object + renderCharts()
+               function (removed to cut ~200KB of unused page weight). -->
           <div id="severityChartCard" class="hidden mb-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <h2 class="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Findings by severity</h2>
             <canvas id="severityChart" height="200"></canvas>
@@ -199,7 +202,6 @@
     </div>
   </main>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
 (function () {
   const root = document.documentElement;
@@ -219,16 +221,8 @@
     root.classList.toggle("dark");
     localStorage.setItem("theme", isDark() ? "dark" : "light");
     syncThemeIcon();
-    if (window.__qaData) renderCharts(window.__qaData);
   });
 
-  const CHART_COLORS = {
-    critical: () => (isDark() ? "#f87171" : "#ef4444"),
-    warning: () => (isDark() ? "#fbbf24" : "#d97706"),
-    suggestion: () => (isDark() ? "#94a3b8" : "#64748b"),
-    gridline: () => (isDark() ? "#1e293b" : "#e2e8f0"),
-    tickText: () => (isDark() ? "#94a3b8" : "#64748b"),
-  };
   const AGENT_LABEL = {
     consistency: "Consistency",
     brand_format: "Brand / Format",
@@ -246,8 +240,6 @@
     warning: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
     suggestion: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
   };
-
-  let severityChartInstance;
 
   // ---------- findings navigation state ----------
   // collapsedSections holds plain section names (shared across tabs -- section
@@ -306,33 +298,6 @@
     `;
   }
 
-  function renderCharts(data) {
-    const { dashboard } = data;
-    const sevLabels = ["critical", "warning", "suggestion"];
-    const sevData = sevLabels.map((s) => dashboard.counts_by_severity[s] || 0);
-    const sevColors = sevLabels.map((s) => CHART_COLORS[s]());
-
-    if (severityChartInstance) severityChartInstance.destroy();
-    severityChartInstance = new Chart(document.getElementById("severityChart"), {
-      type: "bar",
-      data: {
-        labels: ["Critical", "Warning", "Suggestion"],
-        datasets: [{ data: sevData, backgroundColor: sevColors, borderRadius: 4, barThickness: 24 }],
-      },
-      options: {
-        indexAxis: "y",
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.x} finding${ctx.parsed.x === 1 ? "" : "s"}` } },
-        },
-        scales: {
-          x: { beginAtZero: true, ticks: { precision: 0, color: CHART_COLORS.tickText() }, grid: { color: CHART_COLORS.gridline() } },
-          y: { ticks: { color: CHART_COLORS.tickText() }, grid: { display: false } },
-        },
-      },
-    });
-  }
-
   const SEVERITY_TEXT = { critical: "Critical", warning: "Warning", suggestion: "Suggestion" };
   const SEVERITY_BORDER_VAR = {
     critical: "var(--border-danger)",
@@ -346,10 +311,31 @@
     return `
       <div class="rounded-none border-l-[3px] bg-[var(--surface-1)] px-3.5 py-2.5" style="border-left-color: ${accent};">
         <p class="mb-1 text-[11px]" style="color: ${accent};">${text}</p>
-        <p class="text-[13px] font-medium text-slate-900 dark:text-white">${f.description}</p>
-        <p class="mt-1.5 text-xs text-[var(--text-secondary)]">${f.evidence} — ${f.proposed_fix}</p>
+        <button type="button" data-card-toggle="${f.id}" class="flex w-full items-start gap-1.5 text-left">
+          <svg data-card-chevron="${f.id}" class="mt-0.5 h-3 w-3 flex-shrink-0 text-slate-400 transition-transform dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          <span data-card-title="${f.id}" class="line-clamp-2 text-[13px] font-medium text-slate-900 dark:text-white">${f.description}</span>
+        </button>
+        <div data-card-detail="${f.id}" class="hidden mt-1.5 pl-[18px] text-xs text-[var(--text-secondary)]">${f.evidence} — ${f.proposed_fix}</div>
       </div>
     `;
+  }
+
+  // Card bodies are re-inserted via innerHTML on every render, so listeners are
+  // (re)bound per-container afterward rather than attached once -- same pattern
+  // as the existing [data-section-toggle] binding below.
+  function bindCardToggles(container) {
+    container.querySelectorAll("[data-card-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-card-toggle");
+        const detail = container.querySelector(`[data-card-detail="${id}"]`);
+        const title = container.querySelector(`[data-card-title="${id}"]`);
+        const chevron = container.querySelector(`[data-card-chevron="${id}"]`);
+        if (!detail) return;
+        const nowCollapsed = detail.classList.toggle("hidden");
+        if (title) title.classList.toggle("line-clamp-2", nowCollapsed);
+        if (chevron) chevron.classList.toggle("rotate-90", !nowCollapsed);
+      });
+    });
   }
 
   function emptyState(message) {
@@ -486,6 +472,7 @@
         renderGroupedFindings(lastDetailedReport);
       });
     });
+    bindCardToggles(container);
 
     renderSectionNav(visibleSections);
     updateToggleAllLabel(visibleSections.map(([s]) => s));
@@ -503,7 +490,7 @@
 
     nav.innerHTML = visibleSections
       .map(([section, findings]) => `
-        <button type="button" data-jump-to="${section}" class="block w-full rounded-md px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800">
+        <button type="button" data-jump-to="${section}" title="${section}" class="block w-full rounded-md px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800">
           <span class="line-clamp-1">${section}</span>
           <span class="text-xs text-slate-400 dark:text-slate-500">${findings.length} finding${findings.length === 1 ? "" : "s"}</span>
         </button>
@@ -578,7 +565,9 @@
       deltaGroup("Still open", delta.still_open),
       deltaGroup("Resolved", delta.resolved),
     ].join("");
-    document.getElementById("deltaBody").innerHTML = body || emptyState("No findings in either run.");
+    const deltaBody = document.getElementById("deltaBody");
+    deltaBody.innerHTML = body || emptyState("No findings in either run.");
+    bindCardToggles(deltaBody);
   }
 
   function renderReport(data) {
@@ -598,7 +587,6 @@
 
     renderKpis(data.dashboard);
     renderDelta(data.delta);
-    renderCharts(data);
     renderGroupedFindings(data.detailed_report);
   }
 
