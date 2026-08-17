@@ -97,6 +97,29 @@ def _repair_tool_input(raw: dict) -> dict:
     return raw
 
 
+async def transcribe_page_image(client: AsyncAnthropicBedrock, image_b64: str, media_type: str = "image/png") -> str:
+    # No tool-use here -- unlike run_agent(), this isn't producing a structured
+    # findings payload, just plain transcribed text, so the forced-tool-choice/
+    # JSON-repair machinery above doesn't apply.
+    response = await client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+                {
+                    "type": "text",
+                    "text": "Transcribe all text visible in this page image, verbatim, preserving reading "
+                            "order. Respond with only the transcribed text, no commentary. If the page has "
+                            "no visible text, respond with an empty string.",
+                },
+            ],
+        }],
+    )
+    return "".join(block.text for block in response.content if block.type == "text").strip()
+
+
 async def run_agent(client: AsyncAnthropicBedrock, agent_name: AgentName, prompt: str, document_context: str) -> AgentFindings:
     response = await client.messages.create(
         model=MODEL,

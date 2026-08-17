@@ -1,12 +1,18 @@
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import docx
 import pptx
 import pymupdf
 import pytest
 
-from orchestrator.parse import DocumentParseError, parse_document, render_document_context
+from orchestrator.parse import (
+    DocumentParseError,
+    parse_document,
+    parse_document_with_ocr_fallback,
+    render_document_context,
+)
 
 
 def _write_docx(path: Path, headings_and_body: list[tuple[str | None, str]]) -> None:
@@ -161,6 +167,68 @@ class TestParsePdf:
 
         with pytest.raises(DocumentParseError, match="Could not open this file as a PDF"):
             parse_document(path)
+
+
+class TestOcrFallback:
+    async def test_falls_back_to_vision_when_no_text_extracted(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.pdf"
+        _write_pdf(path, ["", ""])
+        mock_transcribe = AsyncMock(return_value="Transcribed text.")
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 2
+        assert {s.page for s in sections} == {1, 2}
+        assert all(s.text == "Transcribed text." for s in sections)
+        assert all(s.section == f"Page {s.page}" for s in sections)
+        assert mock_transcribe.await_count == 2
+
+    async def test_page_with_empty_transcription_is_skipped(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.pdf"
+        _write_pdf(path, ["", ""])
+        # AsyncMock with a plain-list side_effect resolves synchronously (no real
+        # suspension point), and gather() schedules tasks in creation order with
+        # nothing to interleave them -- so this deterministically maps "" to page 1
+        # and the real text to page 2, not by luck.
+        mock_transcribe = AsyncMock(side_effect=["", "Transcribed second page."])
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert sections[0].page == 2
+        assert sections[0].text == "Transcribed second page."
+
+    async def test_raises_when_all_transcriptions_are_empty(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.pdf"
+        _write_pdf(path, ["", ""])
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", AsyncMock(return_value=""))
+
+        with pytest.raises(DocumentParseError, match="No readable text"):
+            await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+    async def test_non_pdf_suffix_reraises_without_calling_client(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.docx"
+        _write_docx(path, [])
+        mock_transcribe = AsyncMock()
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", mock_transcribe)
+
+        with pytest.raises(DocumentParseError, match="No readable text"):
+            await parse_document_with_ocr_fallback(path, client=AsyncMock())
+        mock_transcribe.assert_not_awaited()
+
+    async def test_successful_normal_parse_never_touches_the_client(self, tmp_path, monkeypatch):
+        path = tmp_path / "doc.pdf"
+        _write_pdf(path, ["Real text content"])
+        mock_transcribe = AsyncMock()
+        monkeypatch.setattr("orchestrator.parse.transcribe_page_image", mock_transcribe)
+
+        sections = await parse_document_with_ocr_fallback(path, client=AsyncMock())
+
+        assert len(sections) == 1
+        assert sections[0].text == "Real text content"
+        mock_transcribe.assert_not_awaited()
 
 
 class TestParseDocument:

@@ -8,7 +8,7 @@ from anthropic import AsyncAnthropicBedrock
 from orchestrator.dispatch import run_agents
 from orchestrator.llm_merge import llm_merge_and_report
 from orchestrator.merge import compute_delta, merge_and_report
-from orchestrator.parse import parse_document, render_document_context
+from orchestrator.parse import parse_document_with_ocr_fallback, render_document_context
 
 REPO_ROOT = Path(__file__).resolve().parent
 CONFIG_DIR = REPO_ROOT / "config"
@@ -38,12 +38,12 @@ async def run(
     use_llm_merge: bool = False,
     document_name: str | None = None,
 ) -> dict:
-    sections = parse_document(document_path)
+    client = AsyncAnthropicBedrock(timeout=BEDROCK_TIMEOUT_SECONDS)
+    sections = await parse_document_with_ocr_fallback(document_path, client)
     checklist_yaml = load_checklist(engagement_type)
     style_rules_yaml = load_style_rules()
     document_context = render_document_context(sections, engagement_type, checklist_yaml, style_rules_yaml)
 
-    client = AsyncAnthropicBedrock(timeout=BEDROCK_TIMEOUT_SECONDS)
     agent_findings = await run_agents(client, document_context)
     if use_llm_merge:
         result = await llm_merge_and_report(client, agent_findings)

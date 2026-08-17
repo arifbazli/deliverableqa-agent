@@ -1,9 +1,22 @@
+import asyncio
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 
 import docx
 import pptx
 import pymupdf
+from anthropic import AsyncAnthropicBedrock
+
+from agents.schema import transcribe_page_image
+
+# A US Letter page at this DPI renders to ~1275x1650px, already close to
+# Anthropic's own recommended long-side (~1568px) for vision cost/quality
+# balance -- no extra resize step needed.
+OCR_RENDER_DPI = 150
+# Caps simultaneous Bedrock requests when OCR-ing a fully-scanned deliverable
+# -- an 80-page document would otherwise fire 80 requests at once.
+OCR_CONCURRENCY_LIMIT = 5
 
 
 class DocumentParseError(ValueError):
@@ -70,11 +83,15 @@ def parse_pptx(path: Path) -> list[Section]:
     return sections
 
 
-def parse_pdf(path: Path) -> list[Section]:
+def _open_pdf(path: Path) -> pymupdf.Document:
     try:
-        document = pymupdf.open(str(path))
+        return pymupdf.open(str(path))
     except Exception as e:
         raise DocumentParseError(f"Could not open this file as a PDF: {e}") from e
+
+
+def parse_pdf(path: Path) -> list[Section]:
+    document = _open_pdf(path)
 
     sections: list[Section] = []
     with document:
@@ -82,6 +99,28 @@ def parse_pdf(path: Path) -> list[Section]:
             text = page.get_text().strip()
             if text:
                 sections.append(Section(section=f"Page {page_number}", page=page_number, text=text))
+    return sections
+
+
+async def ocr_scanned_pdf(path: Path, client: AsyncAnthropicBedrock) -> list[Section]:
+    document = _open_pdf(path)
+    semaphore = asyncio.Semaphore(OCR_CONCURRENCY_LIMIT)
+
+    async def transcribe(page_number: int, page: pymupdf.Page) -> Section | None:
+        image_b64 = base64.b64encode(page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")).decode()
+        async with semaphore:
+            text = await transcribe_page_image(client, image_b64)
+        return Section(section=f"Page {page_number}", page=page_number, text=text) if text else None
+
+    with document:
+        results = await asyncio.gather(*(transcribe(n, page) for n, page in enumerate(document, start=1)))
+
+    sections = [s for s in results if s is not None]
+    if not sections:
+        raise DocumentParseError(
+            "No readable text was found in this document, even after attempting OCR via "
+            "Claude vision. It may be blank, corrupted, or too low-resolution to read."
+        )
     return sections
 
 
@@ -102,6 +141,17 @@ def parse_document(path: Path) -> list[Section]:
             "image-based deck, this pipeline can't extract text from it (OCR isn't supported)."
         )
     return sections
+
+
+async def parse_document_with_ocr_fallback(path: Path, client: AsyncAnthropicBedrock) -> list[Section]:
+    """Like parse_document(), but falls back to Claude-vision OCR for a PDF with no
+    extractable text instead of raising immediately -- see ocr_scanned_pdf()."""
+    try:
+        return parse_document(path)
+    except DocumentParseError:
+        if path.suffix.lower() != ".pdf":
+            raise
+        return await ocr_scanned_pdf(path, client)
 
 
 def render_document_context(sections: list[Section], engagement_type: str, checklist_yaml: str, style_rules_yaml: str) -> str:

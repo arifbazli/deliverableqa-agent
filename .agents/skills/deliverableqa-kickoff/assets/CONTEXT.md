@@ -36,7 +36,7 @@ Local-only Python + LangGraph implementation, per the original project proposal.
 - **Orchestration runtime**: Python + LangGraph
 - **Agent fan-out**: LangGraph graph nodes, one per specialist agent, run in parallel
 - **LLM backbone**: Claude, via Amazon Bedrock (`AsyncAnthropicBedrock`, model `global.anthropic.claude-sonnet-5`) — the team's Bedrock IAM policy denies Opus/Fable and requires the `global.` cross-region inference profile prefix for Sonnet, so this is what's actually reachable rather than a plain `ANTHROPIC_API_KEY` call
-- **Document parsing**: `python-docx` (docx), `python-pptx` (pptx), `PyMuPDF` (pdf)
+- **Document parsing**: `python-docx` (docx), `python-pptx` (pptx), `PyMuPDF` (pdf). A PDF with no extractable text (scanned/image-only pages) falls back to Claude vision instead of failing outright — `PyMuPDF` renders each page to a PNG and Claude transcribes it, reusing the same Bedrock client/model as the review agents (no new dependency or credential). Confirmed on a real scanned fixture: transcription was byte-accurate, ~$0.0075 and ~5-6s per page. PDF-only — a scanned/image-only `.docx` or `.pptx` still raises the same clean "no readable text" error as before.
 - **Style/checklist rules**: YAML config file, editable per engagement type
 - **File handling**: local filesystem
 - **Findings storage**: local JSON

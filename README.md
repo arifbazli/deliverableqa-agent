@@ -68,12 +68,12 @@ Local-only — no cloud deployment, no client data leaves the machine.
 |---|---|
 | Runtime | Python 3.14, orchestrated with LangGraph (parallel fan-out to 4 agents) |
 | LLM | Claude via Amazon Bedrock, model `global.anthropic.claude-sonnet-5`, forced tool-use for structured output |
-| Parsing | `python-docx`, `python-pptx`, `PyMuPDF` |
+| Parsing | `python-docx`, `python-pptx`, `PyMuPDF` (+ Claude-vision OCR fallback for scanned PDFs) |
 | Merge | Deterministic dedup by default (`orchestrator/merge.py`); optional `--llm-merge` for semantic cross-section dedup (`orchestrator/llm_merge.py`) |
 | Dashboard | `dashboard/index.html` — Tailwind CDN + Chart.js, no build step |
 | Server | FastAPI (`server.py`) — upload/analyze, findings, clear endpoints |
 | Package mgmt | `uv` (`pyproject.toml` + `uv.lock`) |
-| Tests | pytest, 73 tests, Bedrock client fully mocked |
+| Tests | pytest, 83 tests, Bedrock client fully mocked |
 
 > Forced tool-use instead of structured outputs: this Bedrock route doesn't support `strict` schemas, and a `$ref`-based schema made Claude stringify nested fields unreliably. See `agents/schema.py`.
 
@@ -105,7 +105,7 @@ deliverableqa-agent/
 ├── schema/finding.schema.json
 ├── dashboard/index.html    # 3-panel Tailwind + Chart.js app
 ├── samples/                # planted-error sample deliverable per engagement type
-├── tests/                  # pytest suite, 73 tests
+├── tests/                  # pytest suite, 83 tests
 │
 ├── .agents/skills/deliverableqa-kickoff/   # kickoff skill (Pi)
 └── .claude/skills/deliverableqa-kickoff/   # kickoff skill (Claude Code)
@@ -169,7 +169,7 @@ Run tests:
 uv run pytest
 ```
 
-73 tests, no AWS credentials required — the Bedrock client is mocked throughout.
+83 tests, no AWS credentials required — the Bedrock client is mocked throughout.
 
 > Add `--native-tls` to any `uv run`/`uv sync` command if you're behind a TLS-intercepting corporate proxy.
 
@@ -195,7 +195,7 @@ $lnk.Save()
 
 ## Known limitations
 
-- **No OCR** — scanned/image-only documents fail with a clear error instead of a silent empty report.
+- **Scanned PDFs are OCR'd via Claude vision** — when normal text extraction finds nothing on a PDF, each page is rendered to an image and transcribed by Claude on the same Bedrock client/model already used for review (no new dependency or credential). Measured on a real fixture: byte-accurate transcription, ~$0.0075 and ~5-6s per page — real cost for a fully-scanned deliverable, but it only fires when extraction would otherwise fail completely. PDF-only: a scanned/image-only `.docx` or `.pptx` still fails with a clear error instead of a silent empty report.
 - **Single local user** — no auth, no job queue; concurrent uploads can race.
 - **`--llm-merge` is opt-in** — roughly 2x latency and ~$0.09/call; only worth it when you suspect a cross-section duplicate the default merge structurally can't see.
 - **Some server errors return a bare HTTP 500** — check `server.log` (or terminal output) for the real traceback.
