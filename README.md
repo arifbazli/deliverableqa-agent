@@ -7,17 +7,17 @@
 [![Claude on Bedrock](https://img.shields.io/badge/Claude-Amazon%20Bedrock-D97757)](https://aws.amazon.com/bedrock/)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#)
 
-Built for the Deloitte Agentathon by a 4-person team. Full build spec, agent prompts, and schema live in [`CONTEXT.md`](./CONTEXT.md).
+Built for the Deloitte Agentathon. Full build spec, agent prompts, and schema live in [`CONTEXT.md`](./CONTEXT.md).
 
 ---
 
 ## The problem
 
-Every engagement ends the same way: a last-minute scramble to QA a 30–80 page report or deck before it reaches the client. A senior reviewer can spend 3–5 hours per deliverable hunting for mismatched numbers, wrong fonts, unsubstantiated claims, and missing sections — usually the same person who wrote it, under deadline pressure.
+QA-ing a 30–80 page deliverable before it reaches the client eats 3–5 hours per document — usually spent by the same person who wrote it, hunting for mismatched numbers, wrong fonts, unsubstantiated claims, and missing sections.
 
 ## The solution
 
-An orchestrator parses a draft deliverable and dispatches it to four specialist review agents in parallel, merges and ranks their findings by severity, and renders a QA report before a human ever opens the document.
+An orchestrator parses a draft deliverable, dispatches it to four specialist review agents in parallel, merges and ranks their findings by severity, and renders a report before a human opens the document.
 
 ## Architecture
 
@@ -58,113 +58,59 @@ flowchart TD
     class CONS,BRAND,TONE,STRUCT agentStyle
 ```
 
-Amber = deterministic Python, no LLM call by default (parse and merge). Teal = the specialist agents, which always call an LLM. `CONTEXT.md`'s original design specifies an LLM-driven orchestrator for both parse and merge; parse is still plain Python, and merge defaults to plain Python too but has an opt-in LLM-driven path (`--llm-merge`) — see [Status](#status) and the Merge strategies row in Tech stack.
+Amber = deterministic Python (no LLM call). Teal = agents, which always call Claude. Merge has an opt-in LLM-driven path too (`--llm-merge`) — see [Known limitations](#known-limitations).
 
 ## Tech stack
 
-Local-only Python + LangGraph, per the original project proposal — no cloud deployment, everything in this table is installed and running today.
+Local-only — no cloud deployment, no client data leaves the machine.
 
-| Layer | What's actually used |
+| Layer | What's used |
 |---|---|
-| Orchestration runtime | Python 3.14 |
-| Agent fan-out | LangGraph 1.2 — `StateGraph` with one node per specialist agent, run in parallel |
-| LLM backbone | Claude via **Amazon Bedrock** (`anthropic[bedrock]` 0.120, `AsyncAnthropicBedrock`), model `global.anthropic.claude-sonnet-5` — not a plain `ANTHROPIC_API_KEY` call; see the note below |
-| AWS SDK | boto3 1.43 |
-| Document parsing | `python-docx` 1.2 (docx), `python-pptx` 1.0 (pptx), `PyMuPDF` 1.28 (pdf) |
-| Config | YAML checklists + style rules, parsed with PyYAML 6.0 |
-| Findings storage | Local JSON (`output/findings.json`) |
-| Dashboard | A 3-panel live web app (`dashboard/index.html`) styled with **Tailwind CSS** (CDN) + Chart.js (CDN) — no build step. Left panel uploads a deliverable and shows the current file/refresh time; middle panel lists the 4 agents with per-agent finding counts; right panel shows the selected agent's findings. Fetches `/api/findings` on load, on Refresh, and after every analyze, so it always reflects the current `output/findings.json` without needing a rebuild. |
-| Web server | **FastAPI + uvicorn** (`server.py`) — `GET /api/findings` (reads `output/findings.json` fresh off disk on every request), `DELETE /api/findings` (clears it back to the empty state), `POST /api/analyze` (accepts a docx/pptx/pdf upload + engagement type via `python-multipart` 0.0.27, runs the full pipeline synchronously via `run_qa.run()`, writes the result), plus a static mount serving `dashboard/`. One request at a time, no job queue, no auth — a real Bedrock analysis blocks the request for as long as it takes. |
-| Package management | **uv** — `pyproject.toml` + `uv.lock` (see Getting started); replaced the old `requirements.txt` + `venv`/`pip` workflow. |
-| Merge strategies | Default is deterministic (`orchestrator/merge.py` — `difflib` similarity + location match, no LLM call). Optional LLM-driven merge (`orchestrator/llm_merge.py`, `--llm-merge`) calls Claude with `prompts/orchestrator.md`'s PHASE 2 instructions instead — catches semantic duplicates the deterministic pass structurally cannot see (same underlying issue flagged by two agents under different section labels or wording, since deterministic dedup requires an exact location match). Guards against the LLM inventing a finding id (rejects and falls back) and logs a warning if it silently changes a kept finding's location; falls back to the deterministic merge on any failure (API error, malformed response, validation error, invented id). Measured on a real run: ~2x the total pipeline latency and ~$0.086/call (Sonnet 5 Bedrock pricing) for one extra merge call — worth it only when you suspect a cross-section duplicate, not as a default. |
-| Delta / re-run mode | `orchestrator/merge.py`'s `compute_delta()` compares a run's findings against a prior `findings.json` (matched by location + description similarity) into resolved/still-open/new. |
-| Testing | pytest + pytest-asyncio, 73 tests, zero live Bedrock calls (the client is mocked throughout) |
-| Deployment | None — runs locally on `127.0.0.1`, no client data leaves the machine |
+| Runtime | Python 3.14, orchestrated with LangGraph (parallel fan-out to 4 agents) |
+| LLM | Claude via Amazon Bedrock, model `global.anthropic.claude-sonnet-5`, forced tool-use for structured output |
+| Parsing | `python-docx`, `python-pptx`, `PyMuPDF` |
+| Merge | Deterministic dedup by default (`orchestrator/merge.py`); optional `--llm-merge` for semantic cross-section dedup (`orchestrator/llm_merge.py`) |
+| Dashboard | `dashboard/index.html` — Tailwind CDN + Chart.js, no build step |
+| Server | FastAPI (`server.py`) — upload/analyze, findings, clear endpoints |
+| Package mgmt | `uv` (`pyproject.toml` + `uv.lock`) |
+| Tests | pytest, 73 tests, Bedrock client fully mocked |
 
-> **Why Bedrock, and why forced tool-use instead of structured outputs:** this team's Bedrock IAM policy denies Opus/Fable, and Sonnet needs the `global.` cross-region inference-profile prefix to resolve at all. On top of that, this Bedrock route doesn't support `output_config.format` or `strict` tool schemas, and a `$ref`/`$defs`-based Pydantic schema made `claude-sonnet-5` unreliably stringify nested fields instead of emitting real JSON (~90% failure rate in testing). `agents/schema.py` works around both: forced `tool_choice` against a `$ref`-inlined flat schema, plus a small JSON-repair step for the residual stringified-field cases. `orchestrator/llm_merge.py` reuses the exact same pattern for its own schema.
+> Forced tool-use instead of structured outputs: this Bedrock route doesn't support `strict` schemas, and a `$ref`-based schema made Claude stringify nested fields unreliably. See `agents/schema.py`.
 
 ## Repo structure
 
 ```
 deliverableqa-agent/
-├── run_qa.py                     # CLI entry point: parse → dispatch → merge → report → write findings.json
-│                                 #   (--previous-findings for delta, --llm-merge to opt into LLM merge)
-├── server.py                     # FastAPI app: GET/DELETE /api/findings (reads/clears output/findings.json,
-│                                 #   live off disk, no caching), POST /api/analyze (upload + run pipeline),
-│                                 #   serves dashboard/ as static root
-├── pyproject.toml                # uv-managed deps + dev group (pytest, pytest-asyncio)
-├── uv.lock
-├── .python-version
-├── pytest.ini
-├── CONTEXT.md                    # full build spec: architecture, all 5 system prompts, schema
+├── run_qa.py              # CLI: parse -> agents -> merge -> report -> findings.json
+├── server.py              # FastAPI: /api/findings, /api/analyze, /api/clear + dashboard
+├── pyproject.toml / uv.lock / .python-version
+├── CONTEXT.md             # full build spec, agent prompts, schema
 │
-├── orchestrator/                 # non-agent plumbing
-│   ├── parse.py                  # docx/pptx/pdf -> list[Section]; raises DocumentParseError on
-│   │                             #   empty/corrupt input instead of failing silently
-│   ├── dispatch.py                # LangGraph graph: fans the 4 agents out, runs them concurrently
-│   ├── merge.py                   # dedup + severity sort + dashboard shaping (plain Python, no LLM)
-│   │                             #   + compute_delta() for re-run comparisons
-│   └── llm_merge.py               # opt-in LLM-driven merge (prompts/orchestrator.md PHASE 2),
-│                                 #   falls back to merge.py on any failure
+├── orchestrator/
+│   ├── parse.py           # docx/pptx/pdf -> sections
+│   ├── dispatch.py        # LangGraph fan-out to 4 agents
+│   ├── merge.py           # dedup, severity sort, delta
+│   └── llm_merge.py       # opt-in LLM-driven dedup (--llm-merge)
 │
-├── agents/                       # one Claude call per specialist, all sharing one schema
-│   ├── schema.py                 # Pydantic models + the Bedrock call wrapper (forced tool-use,
-│   │                             #   $ref-inlined schema, JSON-repair — see Tech stack above)
+├── agents/                # one Claude call per specialist
+│   ├── schema.py          # shared Pydantic models + Bedrock call wrapper
 │   ├── consistency.py
 │   ├── brand_format.py
 │   ├── language_tone.py
 │   └── structure.py
 │
-├── prompts/                      # the 5 system prompts, versioned as .md, loaded at runtime
-│   ├── consistency.md
-│   ├── brand_format.md
-│   ├── language_tone.md
-│   ├── structure.md
-│   └── orchestrator.md           # PHASE 2 instructions used by orchestrator/llm_merge.py (opt-in path)
+├── prompts/                # versioned system prompts (.md)
+├── config/                 # per-engagement checklists + style rules
+├── schema/finding.schema.json
+├── dashboard/index.html    # 3-panel Tailwind + Chart.js app
+├── samples/                # planted-error sample deliverable per engagement type
+├── tests/                  # pytest suite, 73 tests
 │
-├── config/                       # per-engagement-type rules, editable without touching code
-│   ├── checklists/
-│   │   ├── advisory.yaml
-│   │   ├── audit.yaml
-│   │   ├── tax.yaml
-│   │   └── consulting.yaml
-│   └── style_rules.yaml          # fonts, colours, required disclaimers
-│
-├── schema/
-│   └── finding.schema.json       # the shared finding shape as plain JSON Schema
-│
-├── dashboard/
-│   └── index.html                # 3-panel Tailwind (CDN) + Chart.js app: upload/clear (left),
-│                                 #   agent nav (middle), findings (right); talks to server.py's
-│                                 #   /api/findings + /api/analyze, no build step
-│
-├── samples/                      # one planted-error sample deliverable per engagement type
-│   ├── generate_sample.py            # advisory — 3 planted errors
-│   ├── advisory_sample.docx
-│   ├── generate_audit_sample.py      # audit — 3 planted errors
-│   ├── audit_sample.docx
-│   ├── generate_tax_sample.py        # tax — 3 planted errors
-│   ├── tax_sample.docx
-│   ├── generate_consulting_sample.py # consulting — 3 planted errors
-│   └── consulting_sample.docx
-│
-├── tests/                        # pytest suite, 73 tests — Bedrock client mocked throughout,
-│   │                             #   zero live API calls
-│   ├── test_parse.py             # docx/pptx/pdf happy paths + empty/corrupt/unsupported edge cases
-│   ├── test_merge.py             # dedup, severity sort, compute_delta matching/thresholds
-│   ├── test_schema_repair.py     # JSON-repair against real malformed Bedrock output shapes
-│   ├── test_run_agent.py         # agents/schema.py's run_agent(), fully mocked
-│   ├── test_llm_merge.py         # llm_merge.py's semantic-dedup value proposition, invented-id
-│   │                             #   guard + fallback, fail-strict validation
-│   └── test_server.py            # /api/analyze + /api/findings routes, run() mocked throughout
-│
-├── .agents/skills/deliverableqa-kickoff/   # kickoff skill, discovered by Pi
-└── .claude/skills/deliverableqa-kickoff/   # kickoff skill, discovered by Claude Code (identical copy)
+├── .agents/skills/deliverableqa-kickoff/   # kickoff skill (Pi)
+└── .claude/skills/deliverableqa-kickoff/   # kickoff skill (Claude Code)
 ```
 
 ## Findings schema
-
-Every agent returns findings in one shared shape:
 
 ```json
 {
@@ -187,107 +133,46 @@ Every agent returns findings in one shared shape:
 
 ## Getting started
 
-Requires Python 3.14, [`uv`](https://docs.astral.sh/uv/) for dependency management, and AWS credentials for a Bedrock account with access to `global.anthropic.claude-sonnet-5` (see the tech stack note above — Opus/Fable and non-`global.` model IDs are not guaranteed to work on every account).
+Requires Python 3.14, [`uv`](https://docs.astral.sh/uv/), and AWS credentials for a Bedrock account with access to `global.anthropic.claude-sonnet-5`.
 
 ```bash
 git clone https://github.com/arifbazli/deliverableqa-agent.git
 cd deliverableqa-agent
-
-uv sync    # creates .venv/ and installs every dependency from uv.lock, incl. dev tools
-
-# AWS credentials must be resolvable via the standard boto3 chain
-# (env vars, ~/.aws/credentials, or an active AWS SSO/profile session)
+uv sync
 ```
 
-`uv sync` replaces the old `python -m venv .venv` + `pip install -r requirements.txt` — there's no `requirements.txt` anymore, `pyproject.toml` + `uv.lock` are the source of truth. Use `uv add <package>` to add a new dependency (writes to both files) rather than editing them by hand.
-
-Engagement type is one of `advisory`, `audit`, `tax`, `consulting` — each maps to its own checklist under `config/checklists/`.
-
-### Run an analysis
+Run an analysis:
 
 ```bash
-# generate a sample deliverable with 3 planted errors (optional — one is committed already
-# per engagement type: advisory_sample.docx, audit_sample.docx, tax_sample.docx, consulting_sample.docx)
-uv run python samples/generate_sample.py
-
 uv run python run_qa.py samples/advisory_sample.docx --engagement-type advisory
 ```
 
-This writes `output/findings.json`.
+Engagement types: `advisory`, `audit`, `tax`, `consulting`.
 
-### View the report
+View the dashboard:
 
 ```bash
-uv run --native-tls python server.py
+uv run python server.py
 # open http://127.0.0.1:8000
 ```
 
-(Drop `--native-tls` if your network doesn't sit behind a TLS-intercepting proxy — it's only needed to make `uv`/`pip` trust the system certificate store instead of its bundled one.)
+Upload a document from the dashboard, or run the CLI and hit **Refresh** — both write to the same `output/findings.json`.
 
-The dashboard has three panels: **left** to upload a new deliverable (or clear the current findings back to an empty state), **middle** to pick which agent's findings to view, **right** to read them. It fetches `output/findings.json` live from the server on every page load, on **Refresh**, and automatically after a successful upload — no rebuild step, and the server itself never needs to be restarted between analyses. You can also drive an analysis from the CLI (`run_qa.py`, above) and just hit Refresh in the browser to see the result — the upload form and the CLI write to the same `output/findings.json`.
+Optional `run_qa.py` flags:
+- `--previous-findings <path>` — adds a resolved/still-open/new delta vs. a prior run
+- `--llm-merge` — one extra Bedrock call to catch cross-section duplicates the default merge can't see (see [Known limitations](#known-limitations))
 
-Two optional flags on `run_qa.py`:
-
-```bash
-# Delta mode: compare this run against a prior findings.json for the same document
-# (e.g. after applying fixes) — adds a "delta" section (resolved/still_open/new) that
-# the dashboard also renders
-uv run python run_qa.py samples/advisory_sample.docx --engagement-type advisory \
-  --previous-findings output/findings.json
-
-# LLM-driven merge: one extra Bedrock call to catch semantic duplicates worded very
-# differently across agents, instead of the default deterministic dedup. Falls back
-# to the deterministic merge automatically if the call fails.
-uv run python run_qa.py samples/advisory_sample.docx --engagement-type advisory --llm-merge
-```
-
-### Running the tests
+Run tests:
 
 ```bash
-uv run --native-tls pytest
+uv run pytest
 ```
 
-73 tests, no AWS credentials required — the Bedrock client is mocked throughout, so the suite runs offline.
+73 tests, no AWS credentials required — the Bedrock client is mocked throughout.
 
-## Status
-
-**Built and verified end-to-end:**
-- Document parsing for docx/pptx/pdf into section-tagged text, with defensive error handling: `orchestrator/parse.py` raises a clear `DocumentParseError` on empty, corrupted, or unreadable input instead of silently returning nothing or leaking a library traceback
-- All 4 specialist agents, calling Claude on Bedrock via forced tool-use, each producing schema-conformant findings
-- LangGraph fan-out/fan-in across all 4 agents
-- Deterministic merge: cross-agent dedup (`difflib` similarity on same-location findings), severity sort, dashboard aggregation
-- Optional LLM-driven merge (`orchestrator/llm_merge.py`, `--llm-merge`), verified via a live A/B test (same `agent_findings` fed to both merge paths on a real document) to catch cross-agent duplicates worded very differently across sections that the deterministic merge structurally cannot see — a dedicated test (`test_llm_merge_catches_a_duplicate_the_deterministic_merge_structurally_cannot`) pins this down by construction, not just by absence of a crash. Rejects and falls back if the LLM invents a finding id not in the original input, warns (without falling back) if it silently relocates a kept finding, and always falls back to the deterministic merge on any API error, malformed response, or validation failure — one bad finding among many good ones discards the whole merge by design (fail-strict; see the inline comment in `llm_merge.py` for the reasoning).
-- Delta/re-run mode (`compute_delta()` in `orchestrator/merge.py`), tuned against real two-pass Bedrock output, with dedicated dashboard rendering: passing `--previous-findings <path>` on the CLI adds a resolved/still-open/new breakdown that the regenerated dashboard renders as its own card. **Known limitation:** a finding that gets both heavily reworded *and* relabeled to a different section between runs can still show up as one "resolved" + one "new" instead of matching as "still open" — the similarity threshold was tuned against real data to minimize this without risking false-merging genuinely unrelated findings, but it isn't eliminated.
-- One planted-error sample deliverable per engagement type (`samples/{advisory,audit,tax,consulting}_sample.docx`, 3 planted errors each), all verified end-to-end against real Bedrock calls with every planted error caught
-- Automated test suite: 73 pytest tests (`pytest.ini`, `asyncio_mode = auto`) covering parse edge cases, merge/dedup/delta logic, JSON-repair, `run_agent()`/`llm_merge`'s value proposition + fallback/guard behavior, and the `/api/analyze`/`/api/findings` server routes — zero live Bedrock calls, the client is mocked throughout.
-- Live 3-panel dashboard (`dashboard/index.html` + `server.py`): upload a deliverable and pick an engagement type from the left panel (`POST /api/analyze` runs the full pipeline synchronously and writes `output/findings.json`), browse findings by agent in the middle/right panels, and clear the current findings back to an empty state via the header's Clear button (`DELETE /api/findings`). `GET /api/findings` reads `output/findings.json` fresh off disk on every request — no caching, no rebuild step. Verified end-to-end via real uploads through the browser (not just the CLI): confirmed the filename/finding counts/agent breakdown all update correctly after analyze, after clicking Refresh, and after a full page reload, in both light and dark mode.
-- CLI entry point (`run_qa.py`), tested end-to-end via `uv run`, including `--previous-findings` and `--llm-merge`
-- `uv`-based dependency management (`pyproject.toml` + `uv.lock` + `.python-version`), replacing the old `requirements.txt` + `venv`/`pip` workflow — verified via a clean `uv sync` + `uv run pytest` pass after deleting the old `.venv/`
-
-**Known gaps:**
-- **Deterministic merge is the default, by design, not because the LLM path is unfinished.** `prompts/orchestrator.md`'s PHASE 2 instructions only run under the opt-in `--llm-merge` flag. Measured on a real run: the extra Bedrock call adds ~2x the total pipeline latency (~33s vs. ~17s for the 4 agents) and costs ~$0.086 (Sonnet 5 Bedrock pricing, ~6.6K input / ~4.4K output tokens) — not worth paying by default for the common case where agents rarely produce cross-section duplicates. Reach for `--llm-merge` specifically when you suspect two agents flagged the same underlying issue under different section labels or wording — a live test against `samples/audit_sample.docx` confirmed this exact scenario: the deterministic merge kept 19 findings untouched (its location-match gate never even compared three findings filed under three different section labels), while `--llm-merge` collapsed them to 15-16 depending on the run, synthesizing one clearer finding out of the fragments (see Merge strategies above).
-
-  Not incomplete or unvalidated — it has a dedicated test proving the value proposition by construction (not just an absence-of-crash test), an invented-id guard that rejects and falls back rather than trusting a hallucinated id, and a documented fail-strict choice (one malformed finding among many good ones discards the whole merge rather than partially recovering) that's pinned down by its own test so a future change to that behavior is deliberate, not accidental.
-- **Scanned/image-only documents aren't supported — by design, not by oversight.** `parse.py` extracts text via `python-docx`/`python-pptx`/`PyMuPDF`, none of which do OCR. A scanned PDF or an image-based deck with no extractable text now fails fast with a clear `DocumentParseError` ("OCR isn't supported") instead of silently producing an empty or misleading report — that failure mode was the actual bug fixed; adding OCR itself would mean a new system dependency (e.g. Tesseract) and is a deliberately separate decision, not assumed as part of this fix.
-- **No auth, no job queue, no concurrency guard.** `/api/analyze` is a plain async endpoint with no lock — two uploads submitted at the same time would run concurrently and race writing `output/findings.json`, rather than queue. Fine for the intended local single-user use; a second person hitting the same server (or one impatient double-click) is the actual risk, not something this version guards against.
-- **`server.py` isn't autostarted by default on a fresh checkout.** See [Auto-start on login (Windows)](#auto-start-on-login-windows) below to wire it up — a per-user Startup-folder script if Task Scheduler is policy-blocked (common on domain-joined machines), a scheduled task otherwise. That section also covers a real gotcha found on this project: a `.lnk`-launched instance doesn't inherit session-scoped AWS credentials, only persisted ones.
-- **Unhandled exceptions in `/api/analyze` surface as a bare `HTTP 500` with no message.** Only `anthropic.APIStatusError`, `anthropic.APIConnectionError`, and `ValueError` get a friendly `HTTPException` with a clear `detail`; anything else — confirmed on this project with `RuntimeError: could not resolve credentials from session` when AWS credentials weren't resolvable — propagates as FastAPI's default 500 response, with nothing useful in the dashboard's error banner. Check `server.log` (if running via the Startup-folder `.lnk`) or the terminal's own output (if run manually) for the real traceback.
+> Add `--native-tls` to any `uv run`/`uv sync` command if you're behind a TLS-intercepting corporate proxy.
 
 ## Auto-start on login (Windows)
-
-To have `server.py` launch automatically whenever you log in (so it survives a reboot without you remembering to run it), try a Windows scheduled task first:
-
-```powershell
-schtasks /create /tn "DeliverableQA Dashboard" /tr "C:\Users\muhaabubakar\.local\bin\uv.exe run --directory C:\Users\muhaabubakar\PyCharmMiscProject\deliverableqa-agent python server.py" /sc onlogon /rl limited
-```
-
-- `/sc onlogon` — runs at login, not on a timer.
-- `/rl limited` — runs with your normal (non-admin) privileges, the same as running it manually.
-- Adjust the two paths if your `uv` install location or checkout path differ from the ones shown — confirm with `(Get-Command uv).Source` and `(Get-Location).Path` from inside the repo.
-
-To remove it later: `schtasks /delete /tn "DeliverableQA Dashboard" /f`. To check it's registered: `schtasks /query /tn "DeliverableQA Dashboard"`.
-
-**On a domain-joined/corporate machine, this may fail with `ERROR: Access is denied.`** — Group Policy can block Task Scheduler task *creation* for non-admin accounts even though querying/viewing existing tasks still works (confirmed: both `schtasks /create` and PowerShell's `Register-ScheduledTask` are denied the same way). If that happens, use the Startup-folder fallback instead — it needs no special permissions, at the cost of only running while you're logged in (not before login, and it stops if you log out):
 
 ```powershell
 $startup = [Environment]::GetFolderPath("Startup")
@@ -295,32 +180,25 @@ $lnkPath = Join-Path $startup "DeliverableQA-Dashboard.lnk"
 $sh = New-Object -ComObject WScript.Shell
 $lnk = $sh.CreateShortcut($lnkPath)
 $lnk.TargetPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-$lnk.Arguments = '-WindowStyle Hidden -Command "Set-Location ''C:\Users\muhaabubakar\PyCharmMiscProject\deliverableqa-agent''; uv run python server.py >> server.log 2>&1"'
-$lnk.WorkingDirectory = "C:\Users\muhaabubakar\PyCharmMiscProject\deliverableqa-agent"
+$lnk.Arguments = '-WindowStyle Hidden -Command "Set-Location ''C:\path\to\deliverableqa-agent''; uv run python server.py >> server.log 2>&1"'
+$lnk.WorkingDirectory = "C:\path\to\deliverableqa-agent"
 $lnk.Save()
 ```
 
-This went through three iterations on this project's own machine, each fixing the previous one's failure mode:
+Drops a shortcut in your Startup folder that launches the server with a hidden window on login; output goes to `server.log` since there's no console to watch.
 
-1. **A `.vbs` wrapper (`WshShell.Run ..., 0, False`)** — genuinely silent (no window at all), but unreliable: it ran fine every time it was invoked manually, but silently never fired on a real reboot + fresh login, with no corresponding block/error anywhere in Defender, Avecto Defendpoint (BeyondTrust Privilege Management — common on domain-joined corporate machines), or Event Viewer. The exact mechanism was never pinned down; the WScript/`WshShell.Run` indirection was the common factor.
-2. **A `.lnk` pointing directly at `uv.exe`** — reliable at real boot (confirmed against an existing unrelated `.lnk` in the same Startup folder that launched successfully every reboot, right next to a `.vbs` that didn't), but not actually silent: a `.lnk`'s `WindowStyle` property is only a *hint* honored by the target process's own window-creation code, and console apps generally show a window regardless of that hint — so a minimized console sat in the taskbar the whole time, and closing it (easy to do by accident) killed the server.
-3. **A `.lnk` pointing at `powershell.exe -WindowStyle Hidden`** (current) — keeps the exact same proven-reliable Startup-folder `.lnk` mechanism from #2, but `-WindowStyle Hidden` is a real argument `powershell.exe` itself honors when creating its own console, not a hint to some other process — confirmed via Win32 `EnumWindows`/`IsWindowVisible` after a manual run that zero visible windows exist anywhere for the entire process chain (`powershell.exe` → `uv.exe` → `python.exe` ×2), while `netstat`/`curl` confirm the server is genuinely up regardless. `uv run python server.py >> server.log 2>&1` redirects both stdout and stderr to `server.log` in the repo root (already `.gitignore`d) — with no window to glance at, this is the only way to see what the server's doing if something goes wrong later; `Get-Content server.log -Tail 20` or `-Wait` to follow it live.
+- Works without admin rights — a Task Scheduler equivalent is often blocked by Group Policy on corporate machines.
+- AWS credentials must be persisted as User/Machine environment variables (`[Environment]::SetEnvironmentVariable(...)`) — a freshly-launched process won't inherit credentials set only in one terminal session.
+- Remove by deleting the `.lnk` from `shell:startup`.
 
-Adjust the hardcoded paths if your checkout or `uv` install location differ. To remove it, delete the `.lnk` from the Startup folder (`shell:startup` in the Run dialog opens it in Explorer).
+## Known limitations
 
-**AWS credentials must be persisted, not just session-scoped, for the auto-started instance to actually work.** A `.lnk` launched by Explorer (double-click or at login) only inherits *persistent* User- or Machine-level environment variables — not credentials set temporarily in one interactive terminal (e.g. by a corporate SSO tool that injects them into just that shell). Confirmed on this project's own machine: the dashboard loaded fine and `GET /api/findings` worked (no Bedrock call needed), masking the problem completely until an actual analyze was attempted — `POST /api/analyze` returned a bare `HTTP 500`, with `RuntimeError: could not resolve credentials from session` in `server.log` as the real cause. `Get-ChildItem Env:` in an already-open terminal will happily show credentials that a *freshly launched* process (like the `.lnk`'s) will never see — check with `[Environment]::GetEnvironmentVariable("AWS_ACCESS_KEY_ID", "User")` instead, which only returns a value if it's actually persisted somewhere a new process inherits from. Fix: persist `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` the same way, e.g. `[Environment]::SetEnvironmentVariable("AWS_ACCESS_KEY_ID", "<value>", "User")`. If your credentials are SSO-issued and expire/rotate, you'll need to re-persist them the same way each time they do — a `~/.aws/credentials` profile your SSO tooling refreshes in place avoids that, if your org's setup supports it.
-
-**Still needs a real reboot test.** Everything above was verified by running the `.lnk` manually and checking programmatically (window enumeration, `netstat`, the log file) — the same way the `.lnk`-to-`uv.exe` approach in step 2 was verified before it turned out to still show a taskbar window. A manual run proves the command works; it doesn't prove Explorer fires it identically at a real cold boot + fresh login, which is the one thing that's actually failed silently before (see the `.vbs` history above). Treat this as verified-pending-a-real-reboot until confirmed.
+- **No OCR** — scanned/image-only documents fail with a clear error instead of a silent empty report.
+- **Single local user** — no auth, no job queue; concurrent uploads can race.
+- **`--llm-merge` is opt-in** — roughly 2x latency and ~$0.09/call; only worth it when you suspect a cross-section duplicate the default merge structurally can't see.
+- **Some server errors return a bare HTTP 500** — check `server.log` (or terminal output) for the real traceback.
+- **Delta matching (`--previous-findings`) can miss a finding that's both reworded and relabeled to a new section between runs.**
 
 ## Agent skill (Pi + Claude Code)
 
-The project context, agent prompts, and deployment setup are packaged as a reusable skill, discoverable by both coding agents used on this project:
-
-```
-.agents/skills/deliverableqa-kickoff/   # discovered by Pi (pi.dev)
-.claude/skills/deliverableqa-kickoff/   # discovered by Claude Code
-```
-
-Both are identical copies (`SKILL.md`, `assets/CONTEXT.md`, `references/deployment-setup.md`). There's no symlink between them — if the skill content changes, update both paths in the same commit to keep them in sync.
-
-> This repo is being built incrementally with **Claude Code**, working through `CONTEXT.md` step by step rather than one large autonomous generation.
+Project context, prompts, and schema are packaged as a reusable skill under `.agents/skills/deliverableqa-kickoff/` (Pi) and `.claude/skills/deliverableqa-kickoff/` (Claude Code) — identical copies, kept in sync manually.
