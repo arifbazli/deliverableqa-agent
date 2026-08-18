@@ -4,637 +4,345 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DeliverableQA report</title>
-<script>
-  // Set the theme class before Tailwind's runtime loads, to avoid a flash of the wrong theme.
-  (function () {
-    const stored = localStorage.getItem("theme");
-    const theme = stored || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    if (theme === "dark") document.documentElement.classList.add("dark");
-  })();
-</script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
-    darkMode: "class",
     theme: {
-      extend: {
-        fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
-      },
+      extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] } },
     },
   };
 </script>
 <style>
   body { font-family: "Inter", system-ui, sans-serif; }
 
+  /* Dark-mode-only design tokens -- single palette, no light-mode branch. */
   :root {
-    --surface-1: #ffffff;
-    --surface-2: #f8fafc;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
-    --border: #e2e8f0;
-    --border-strong: #cbd5e1;
-    --fill-secondary: #f1f5f9;
-    --border-danger: #ef4444;
-    --border-warning: #f59e0b;
+    --surface-2: #15171c;    /* page background */
+    --surface-1: #1c1f26;    /* card/panel background */
+    --fill-secondary: #22252c; /* inset/chip background */
+    --border: #2c303a;
+    --border-strong: #3a3f4b;
+    --text-primary: #e8e9ec;
+    --text-secondary: #d5d6db;
+    --text-muted: #9aa0ab;   /* the spec's own AA-safe fallback -- see README/audit notes */
+    --border-danger: #f87171;
+    --fill-danger: #2a1c1c;
+    --border-warning: #fbbf24;
+    --fill-warning: #2a251a;
+    --border-suggestion: #c7c9cf;
+    --accent: #4c6ef5;
+    --accent-hover: #3b5bdb;
+    --success: #4ade80;
     --radius: 10px;
   }
-  .dark {
-    --surface-1: #0f172a;
-    --surface-2: #020617;
-    --text-secondary: #cbd5e1;
-    --text-muted: #64748b;
-    --border: #1e293b;
-    --border-strong: #334155;
-    --fill-secondary: #1e293b;
-    --border-danger: #f87171;
-    --border-warning: #fbbf24;
+
+  button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
-  .c-blue { background: #dbeafe; color: #1d4ed8; }
-  .dark .c-blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-  .c-purple { background: #ede9fe; color: #6d28d9; }
-  .dark .c-purple { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
-  .c-green { background: #dcfce7; color: #15803d; }
-  .dark .c-green { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
-  .c-orange { background: #ffedd5; color: #c2410c; }
-  .dark .c-orange { background: rgba(249, 115, 22, 0.15); color: #fb923c; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.001ms !important;
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
 </style>
 </head>
-<body class="min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+<body class="min-h-screen bg-[var(--surface-2)] text-[var(--text-primary)] antialiased">
 
-  <header class="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
-    <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-      <div class="flex items-center gap-2 font-semibold text-slate-900 dark:text-white">
-        <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/><path d="M9 13.5l1.8 1.8L15 11"/></svg>
+  <header class="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface-2)]/90 backdrop-blur">
+    <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+      <div class="flex items-center gap-2 text-[14px] font-medium text-[var(--text-primary)]">
+        <svg class="h-4 w-4 text-[var(--accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/><path d="M9 13.5l1.8 1.8L15 11"/></svg>
         DeliverableQA
       </div>
-      <div class="flex items-center gap-2">
-        <button id="refreshButton" type="button" class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+      <div class="flex items-center gap-1.5">
+        <button id="refreshButton" type="button" aria-label="Refresh" title="Refresh"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
-          Refresh
         </button>
-        <button id="clearButton" type="button" class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
+        <button id="clearButton" type="button" aria-label="Clear" title="Clear"
+          class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-          Clear
-        </button>
-        <button id="themeToggle" type="button" aria-label="Toggle dark mode" class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800">
-          <svg id="iconSun" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="4.2" y1="4.2" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.8" y2="19.8"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.2" y1="19.8" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.8" y2="4.2"/></svg>
-          <svg id="iconMoon" class="hidden h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
         </button>
       </div>
     </div>
   </header>
 
-  <div id="stickySummaryBar" class="sticky top-[57px] z-10 hidden items-center border-b border-slate-200 bg-white/95 px-6 py-2.5 text-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-    <div id="stickySummaryContent" class="mx-auto flex w-full max-w-7xl items-center gap-4"></div>
-  </div>
+  <main class="mx-auto max-w-6xl px-4 py-6">
 
-  <main class="mx-auto max-w-7xl px-6 py-10">
-    <div class="grid gap-6 lg:grid-cols-[200px,180px,1fr]">
+    <!-- Three-panel row: always visible, regardless of report state. -->
+    <div class="mb-4 grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
 
-      <!-- LEFT: upload panel -->
-      <div id="uploadPanel">
-        <div class="flex flex-col gap-3 rounded-xl bg-[var(--surface-1)] p-5">
-          <div class="flex items-center gap-2">
-            <svg class="h-4 w-4 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
-            <span class="text-[13px] font-medium text-slate-900 dark:text-white">Upload</span>
-          </div>
-          <form id="uploadForm" class="flex flex-col gap-3">
-            <label for="fileInput" class="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[var(--radius)] border border-dashed border-[var(--border-strong)] px-2 py-5 text-center">
-              <svg class="h-[22px] w-[22px] text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/></svg>
-              <span id="fileInputLabel" class="text-[11px] text-[var(--text-muted)]">Drop .docx, .pdf, .pptx</span>
-              <input id="fileInput" type="file" accept=".docx,.pdf,.pptx" required class="sr-only" />
-            </label>
-            <select id="engagementSelect"
-              class="block w-full rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
-              <option value="advisory">Advisory</option>
-              <option value="audit">Audit</option>
-              <option value="tax">Tax</option>
-              <option value="consulting">Consulting</option>
-            </select>
-            <button id="analyzeButton" type="submit"
-              class="inline-flex items-center justify-center gap-1.5 rounded-md border-[0.5px] border-[var(--border-strong)] bg-[var(--fill-secondary)] px-4 py-2 text-xs font-medium text-slate-900 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:text-white">
-              Analyze
-              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
-            </button>
-          </form>
-          <div id="analyzeStatus" class="hidden items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-            <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
-            <span id="analyzeStatusText">Analyzing&hellip; this calls Claude on Bedrock for real, so it can take a minute or two.</span>
-          </div>
-          <div id="analyzeError" class="hidden rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"></div>
-
-          <div class="mt-1 border-t-[0.5px] border-[var(--border)] pt-2.5">
-            <p id="leftPanelFilename" class="truncate text-[11px] text-[var(--text-muted)]"></p>
-            <p id="leftPanelRefreshed" class="mt-0.5 text-[11px] text-[var(--text-muted)]"></p>
+      <!-- Panel A: Upload -->
+      <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
+        <h2 class="text-[13px] font-medium text-[var(--text-primary)]">Upload</h2>
+        <form id="uploadForm" class="flex flex-col gap-3">
+          <label for="fileInput" class="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[8px] border border-dashed border-[var(--border-strong)] px-2 py-5 text-center transition hover:border-[var(--accent)]">
+            <svg class="h-5 w-5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
+            <span id="fileInputLabel" class="text-[11px] text-[var(--text-muted)]">Drop file or browse</span>
+            <input id="fileInput" type="file" accept=".docx,.pdf,.pptx" required class="sr-only" />
+          </label>
+          <select id="engagementSelect"
+            class="block w-full rounded-md border border-[var(--border)] bg-[var(--fill-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+            <option value="advisory">Advisory</option>
+            <option value="audit">Audit</option>
+            <option value="tax">Tax</option>
+            <option value="consulting">Consulting</option>
+          </select>
+        </form>
+        <div id="fileChip" class="hidden items-center gap-2 rounded-md bg-[var(--fill-secondary)] px-2.5 py-2">
+          <svg class="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/></svg>
+          <div class="min-w-0 flex-1">
+            <p id="leftPanelFilename" class="truncate text-[11px] text-[var(--text-secondary)]"></p>
+            <p id="leftPanelRefreshed" class="text-[10px] text-[var(--text-muted)]"></p>
           </div>
         </div>
+        <div id="analyzeError" class="hidden rounded-md border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-2.5 text-xs text-[var(--border-danger)]"></div>
       </div>
 
-      <!-- MIDDLE: agent category nav -->
-      <div id="agentNavPanel">
-        <div class="flex flex-col gap-1 rounded-xl bg-[var(--surface-1)] p-5">
-          <h2 class="mb-2 text-[13px] font-medium text-slate-900 dark:text-white">Agents</h2>
-          <div id="agentTabs" class="flex flex-col gap-1"></div>
+      <!-- Panel B: Analyze -->
+      <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[13px] font-medium text-[var(--text-primary)]">Analyze</h2>
+          <span id="agentStatusText" class="text-[11px] text-[var(--text-muted)]"></span>
         </div>
+        <div id="agentChecklist" class="flex flex-col gap-1.5"></div>
+        <div id="analyzeStatus" class="hidden items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+          <svg class="h-3 w-3 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+          <span id="analyzeStatusText">Analyzing&hellip; this calls Claude on Bedrock for real, so it can take a minute or two.</span>
+        </div>
+        <button id="analyzeButton" type="submit" form="uploadForm"
+          class="mt-auto inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">
+          <span id="analyzeButtonLabel">Run analysis</span>
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+        </button>
       </div>
 
-      <!-- RIGHT: findings -->
-      <div id="rightPanel" class="flex flex-col gap-3 rounded-xl border-[0.5px] border-[var(--border)] bg-[var(--surface-2)] p-5">
-        <div id="loadingState" class="py-24 text-center text-sm text-slate-500 dark:text-slate-400">
-          Loading report&hellip;
+      <!-- Panel C: Result -->
+      <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[13px] font-medium text-[var(--text-primary)]">Result</h2>
+          <span id="resultCount" class="text-[11px] text-[var(--text-muted)]"></span>
         </div>
-
-        <div id="errorState" class="hidden rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"></div>
-
-        <div id="emptyState" class="hidden rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-          No findings yet — upload a document to begin.
-        </div>
-
-        <div id="reportContent" class="hidden">
-          <!-- Hidden per request: Recommendation banner + severity KPI cards. Not
-               deleted -- remove the `hidden` class below to restore. renderKpis() still
-               runs against this hidden element so #stickySummaryBar (not hidden) keeps
-               working off the same data. -->
-          <div id="kpiRow" class="hidden mb-8 grid grid-cols-2 gap-4 sm:grid-cols-5"></div>
-
-          <div id="deltaCard" class="mb-8 hidden rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <h2 class="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Delta vs. previous run</h2>
-            <div id="deltaKpiRow" class="mb-6 grid grid-cols-3 gap-4"></div>
-            <div id="deltaBody" class="space-y-6"></div>
-          </div>
-
-          <!-- Hidden per request: "Findings by severity" chart. Not deleted -- to
-               restore: remove the `hidden` class below, re-add
-               <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script> in
-               <head>, and restore the CHART_COLORS object + renderCharts()
-               function (removed to cut ~200KB of unused page weight). -->
-          <div id="severityChartCard" class="hidden mb-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <h2 class="mb-4 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Findings by severity</h2>
-            <canvas id="severityChart" height="200"></canvas>
-          </div>
-
-          <div>
-            <div class="mb-4 flex items-center justify-between gap-3">
-              <h2 id="findingsHeader" class="text-[13px] font-medium text-[var(--text-secondary)]"></h2>
-              <button id="toggleAllButton" type="button" class="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800">
-                Collapse all
-              </button>
-            </div>
-
-            <div class="mb-4 lg:hidden">
-              <select id="sectionNavMobile" class="block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                <option value="">Jump to section&hellip;</option>
-              </select>
-            </div>
-
-            <div class="grid gap-6 lg:grid-cols-[220px,1fr]">
-              <nav id="sectionNav" class="hidden lg:sticky lg:top-[105px] lg:block lg:h-fit lg:space-y-1"></nav>
-              <div id="findingsBody" class="space-y-8"></div>
-            </div>
-          </div>
-        </div>
+        <div id="resultTiles" class="grid grid-cols-3 gap-2"></div>
       </div>
 
     </div>
+
+    <!-- Findings list: loading / error / empty / content states. -->
+    <div id="loadingState" class="flex items-center justify-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] py-20 text-sm text-[var(--text-muted)]">
+      <svg class="h-4 w-4 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
+      Loading report&hellip;
+    </div>
+
+    <div id="errorState" class="hidden rounded-[var(--radius)] border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-6 text-sm text-[var(--border-danger)]"></div>
+
+    <div id="emptyState" class="hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-10 text-center text-sm text-[var(--text-muted)]">
+      No findings yet — upload a document to begin.
+    </div>
+
+    <div id="findingsSection" class="hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h2 class="text-[13px] font-medium text-[var(--text-primary)]">All findings</h2>
+        <div id="filterTabs" class="flex gap-1"></div>
+      </div>
+      <div id="findingsListScroll" class="flex flex-col overflow-y-auto" style="max-height: 280px;"></div>
+    </div>
+
   </main>
 
 <script>
 (function () {
-  const root = document.documentElement;
-  const themeToggle = document.getElementById("themeToggle");
-  const iconSun = document.getElementById("iconSun");
-  const iconMoon = document.getElementById("iconMoon");
+  const SEVERITY_LABEL = { critical: "Critical", warning: "Warning", suggestion: "Suggestion" };
+  const SEVERITY_COLOR_VAR = { critical: "--border-danger", warning: "--border-warning", suggestion: "--border-suggestion" };
+  const SEVERITY_FILL_VAR = { critical: "--fill-danger", warning: "--fill-warning", suggestion: "--fill-secondary" };
+  const FILTERS = [["all", "All"], ["critical", "Critical"], ["warning", "Warning"], ["suggestion", "Suggestion"]];
+  const AGENT_LIST = [
+    { key: "consistency", label: "Consistency" },
+    { key: "brand_format", label: "Brand and format" },
+    { key: "language_tone", label: "Language and tone" },
+    { key: "structure", label: "Structure and completeness" },
+  ];
 
-  function isDark() {
-    return root.classList.contains("dark");
-  }
-  function syncThemeIcon() {
-    iconSun.classList.toggle("hidden", isDark());
-    iconMoon.classList.toggle("hidden", !isDark());
-  }
-  syncThemeIcon();
-  themeToggle.addEventListener("click", () => {
-    root.classList.toggle("dark");
-    localStorage.setItem("theme", isDark() ? "dark" : "light");
-    syncThemeIcon();
-  });
-
-  const AGENT_LABEL = {
-    consistency: "Consistency",
-    brand_format: "Brand / Format",
-    language_tone: "Language / Tone",
-    structure: "Structure",
-  };
-  const AGENT_RAMP = {
-    consistency: "c-blue",
-    brand_format: "c-purple",
-    language_tone: "c-green",
-    structure: "c-orange",
-  };
-  const SEVERITY_BADGE_CLASS = {
-    critical: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400",
-    warning: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
-    suggestion: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
-  };
-
-  // ---------- findings navigation state ----------
-  // collapsedSections holds plain section names (shared across tabs -- section
-  // names essentially never collide across agents, and display is scoped to
-  // whichever tab is active regardless). seededTabs tracks which agent tabs have
-  // already had their default collapse state computed, since "has a critical"
-  // is evaluated per tab (a section can have a critical under one agent's
-  // findings but not another's) -- switching to a tab for the first time seeds
-  // it; revisiting a tab leaves the user's manual toggles alone.
-  let collapsedSections = new Set();
-  let seededTabs = new Set();
-  const activeSeverityFilter = new Set(); // empty = show all severities
-  let activeAgentTab = "all";
-  let lastDetailedReport = null; // re-render target for filter/collapse-all changes
-
-  const SEVERITY_TILE_CLASS = {
-    critical: { text: "text-red-600 dark:text-red-400", ring: "ring-2 ring-red-500" },
-    warning: { text: "text-amber-600 dark:text-amber-400", ring: "ring-2 ring-amber-500" },
-    suggestion: { text: "text-slate-600 dark:text-slate-300", ring: "ring-2 ring-slate-400 dark:ring-slate-500" },
-  };
-
-  function renderKpis(dashboard) {
-    const kpiRow = document.getElementById("kpiRow");
-    const passFail = dashboard.pass_fail === "fail" ? "fail" : "pass";
-    const recommendationClass = passFail === "fail"
-      ? "text-red-600 dark:text-red-400"
-      : "text-emerald-600 dark:text-emerald-400";
-    const tile = (label, value, valueClass = "text-slate-900 dark:text-white", severity = null) => `
-      <div ${severity ? `data-severity-tile="${severity}"` : ""} class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900${severity ? " cursor-pointer select-none transition hover:border-slate-300 dark:hover:border-slate-700" : ""}${severity && activeSeverityFilter.has(severity) ? ` ${SEVERITY_TILE_CLASS[severity].ring}` : ""}">
-        <p class="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">${label}</p>
-        <p class="text-2xl font-semibold ${valueClass}">${value}</p>
-      </div>
-    `;
-    kpiRow.innerHTML = [
-      tile("Recommendation", passFail === "fail" ? "Fail" : "Pass", recommendationClass),
-      tile("Total findings", dashboard.total_findings),
-      tile("Critical", dashboard.counts_by_severity.critical || 0, SEVERITY_TILE_CLASS.critical.text, "critical"),
-      tile("Warnings", dashboard.counts_by_severity.warning || 0, SEVERITY_TILE_CLASS.warning.text, "warning"),
-      tile("Suggestions", dashboard.counts_by_severity.suggestion || 0, SEVERITY_TILE_CLASS.suggestion.text, "suggestion"),
-    ].join("");
-    renderStickySummary(dashboard);
-  }
-
-  function renderStickySummary(dashboard) {
-    const content = document.getElementById("stickySummaryContent");
-    const pill = (label, value, severity) => `
-      <button type="button" data-severity-tile="${severity}" class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition ${SEVERITY_BADGE_CLASS[severity]}${activeSeverityFilter.has(severity) ? " ring-2 ring-offset-1 ring-offset-white dark:ring-offset-slate-950 " + (severity === "critical" ? "ring-red-500" : severity === "warning" ? "ring-amber-500" : "ring-slate-400") : ""}">
-        <span class="h-1.5 w-1.5 rounded-full bg-current"></span>${label}: ${value}
-      </button>
-    `;
-    content.innerHTML = `
-      <span class="font-semibold text-slate-900 dark:text-white">${dashboard.total_findings} findings</span>
-      ${pill("Critical", dashboard.counts_by_severity.critical || 0, "critical")}
-      ${pill("Warnings", dashboard.counts_by_severity.warning || 0, "warning")}
-      ${pill("Suggestions", dashboard.counts_by_severity.suggestion || 0, "suggestion")}
-    `;
-  }
-
-  const SEVERITY_TEXT = { critical: "Critical", warning: "Warning", suggestion: "Suggestion" };
-  const SEVERITY_BORDER_VAR = {
-    critical: "var(--border-danger)",
-    warning: "var(--border-warning)",
-    suggestion: "var(--border)",
-  };
-
-  function findingCard(f) {
-    const accent = SEVERITY_BORDER_VAR[f.severity] || SEVERITY_BORDER_VAR.suggestion;
-    const text = SEVERITY_TEXT[f.severity] || f.severity;
-    return `
-      <div class="rounded-none border-l-[3px] bg-[var(--surface-1)] px-3.5 py-2.5" style="border-left-color: ${accent};">
-        <p class="mb-1 text-[11px]" style="color: ${accent};">${text}</p>
-        <button type="button" data-card-toggle="${f.id}" class="flex w-full items-start gap-1.5 text-left">
-          <svg data-card-chevron="${f.id}" class="mt-0.5 h-3 w-3 flex-shrink-0 text-slate-400 transition-transform dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-          <span data-card-title="${f.id}" class="line-clamp-2 text-[13px] font-medium text-slate-900 dark:text-white">${f.description}</span>
-        </button>
-        <div data-card-detail="${f.id}" class="hidden mt-1.5 pl-[18px] text-xs text-[var(--text-secondary)]">${f.evidence} — ${f.proposed_fix}</div>
-      </div>
-    `;
-  }
-
-  // Card bodies are re-inserted via innerHTML on every render, so listeners are
-  // (re)bound per-container afterward rather than attached once -- same pattern
-  // as the existing [data-section-toggle] binding below.
-  function bindCardToggles(container) {
-    container.querySelectorAll("[data-card-toggle]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-card-toggle");
-        const detail = container.querySelector(`[data-card-detail="${id}"]`);
-        const title = container.querySelector(`[data-card-title="${id}"]`);
-        const chevron = container.querySelector(`[data-card-chevron="${id}"]`);
-        if (!detail) return;
-        const nowCollapsed = detail.classList.toggle("hidden");
-        if (title) title.classList.toggle("line-clamp-2", nowCollapsed);
-        if (chevron) chevron.classList.toggle("rotate-90", !nowCollapsed);
-      });
-    });
-  }
+  // ---------- state ----------
+  let activeFilter = "all"; // single-select: exactly one of FILTERS is active at a time
+  let openRowId = null; // accordion: at most one finding row expanded at a time
+  let lastDashboard = { counts_by_severity: {}, total_findings: 0 };
+  let lastFindingsFlat = [];
+  let agentStatus = "idle"; // "idle" | "running" | "done" -- see plan notes: the backend
+  // has no per-agent progress signal (POST /api/analyze is one call that only resolves
+  // once all 4 agents are done), so this is an honest tri-state, not simulated per-agent timing.
 
   function emptyState(message) {
-    return `<div class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">${message}</div>`;
+    return `<div class="py-6 text-center text-sm text-[var(--text-muted)]">${message}</div>`;
   }
 
-  function sectionAnchorId(section) {
-    return "section-" + section.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  // ---------- Panel B: agent checklist ----------
+  function agentIcon(isDone) {
+    return isDone
+      ? `<svg class="h-4 w-4 flex-shrink-0" style="color: var(--success);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 5-5"/></svg>`
+      : `<svg class="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></svg>`;
   }
 
-  function agentFiltered(findings) {
-    return activeAgentTab === "all" ? findings : findings.filter((f) => f.agent === activeAgentTab);
+  function setAgentStatus(status) {
+    agentStatus = status;
+    const label = status === "idle" ? `${AGENT_LIST.length} agents ready`
+      : status === "running" ? `Running ${AGENT_LIST.length} agents`
+      : `${AGENT_LIST.length} agents complete`;
+    document.getElementById("agentStatusText").textContent = label;
+    document.getElementById("analyzeButtonLabel").textContent = status === "done" ? "Re-run" : "Run analysis";
+    const isDone = status === "done";
+    document.getElementById("agentChecklist").innerHTML = AGENT_LIST
+      .map((a) => `
+        <div class="flex items-center gap-2 text-[12px]">
+          ${agentIcon(isDone)}
+          <span class="${isDone ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"}">${a.label}</span>
+        </div>
+      `)
+      .join("");
   }
 
-  function filteredFindings(findings) {
-    const byAgent = agentFiltered(findings);
-    if (activeSeverityFilter.size === 0) return byAgent;
-    return byAgent.filter((f) => activeSeverityFilter.has(f.severity));
-  }
-
-  function allFindingsFlat(detailedReport) {
-    return Object.values(detailedReport.sections || {}).flat();
-  }
-
-  function renderAgentTabs(detailedReport) {
-    const container = document.getElementById("agentTabs");
-    // Badge counts reflect the severity filter but not the agent tab itself --
-    // otherwise every non-active tab's count would collapse toward its own total
-    // and "All" would double-count nothing useful.
-    const bySeverity = activeSeverityFilter.size === 0
-      ? allFindingsFlat(detailedReport)
-      : allFindingsFlat(detailedReport).filter((f) => activeSeverityFilter.has(f.severity));
-
-    const allRow = `
-      <button type="button" data-agent-tab="all" class="flex w-full items-center justify-between py-[5px] text-left text-xs text-[var(--text-secondary)]">
-        <span>All</span>
-        <span class="text-[var(--text-muted)]">${bySeverity.length}</span>
+  // ---------- Panel C: result tiles ----------
+  function resultTile(severity, label, count) {
+    const isActive = activeFilter === severity;
+    const colorVar = SEVERITY_COLOR_VAR[severity];
+    const fillVar = SEVERITY_FILL_VAR[severity];
+    return `
+      <button type="button" data-tile-filter="${severity}"
+        class="flex flex-col items-center gap-0.5 rounded-md border px-2 py-2.5 transition"
+        style="border-color: ${isActive ? `var(${colorVar})` : "var(--border)"}; background: ${isActive ? `var(${fillVar})` : "transparent"};">
+        <span class="text-[16px] font-medium" style="color: var(${colorVar});">${count}</span>
+        <span class="text-[10px] text-[var(--text-muted)]">${label}</span>
       </button>
     `;
+  }
 
-    const agentRows = Object.entries(AGENT_LABEL)
+  function renderResultTiles() {
+    const counts = lastDashboard.counts_by_severity || {};
+    const container = document.getElementById("resultTiles");
+    container.innerHTML = [
+      resultTile("critical", "Critical", counts.critical || 0),
+      resultTile("warning", "Warning", counts.warning || 0),
+      resultTile("suggestion", "Suggestion", counts.suggestion || 0),
+    ].join("");
+    container.querySelectorAll("[data-tile-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => setActiveFilter(btn.getAttribute("data-tile-filter")));
+    });
+    document.getElementById("resultCount").textContent = `${lastDashboard.total_findings || 0} findings`;
+  }
+
+  // ---------- findings list: filter tabs + accordion rows ----------
+  function renderFilterTabs() {
+    const container = document.getElementById("filterTabs");
+    container.innerHTML = FILTERS
       .map(([key, label]) => {
-        const count = bySeverity.filter((f) => f.agent === key).length;
-        const isActive = activeAgentTab === key;
-        const rowCls = isActive ? AGENT_RAMP[key] : "text-[var(--text-secondary)]";
-        const countCls = isActive ? "" : "text-[var(--text-muted)]";
+        const isActive = activeFilter === key;
         return `
-          <button type="button" data-agent-tab="${key}" class="flex w-full items-center justify-between rounded-[var(--radius)] px-2.5 py-2 text-left text-xs ${rowCls}">
-            <span>${label}</span>
-            <span class="${countCls}">${count}</span>
+          <button type="button" data-filter-tab="${key}"
+            class="rounded-full px-2.5 py-1 text-[11px] font-medium transition ${isActive ? "bg-[var(--accent)] text-white" : "bg-[var(--fill-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}">
+            ${label}
           </button>
         `;
       })
       .join("");
-
-    container.innerHTML = allRow + agentRows;
-
-    container.querySelectorAll("[data-agent-tab]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        activeAgentTab = btn.getAttribute("data-agent-tab");
-        renderGroupedFindings(lastDetailedReport);
-      });
+    container.querySelectorAll("[data-filter-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => setActiveFilter(btn.getAttribute("data-filter-tab")));
     });
   }
 
-  function renderFindingsHeader(visibleSections) {
-    const label = activeAgentTab === "all" ? "All" : (AGENT_LABEL[activeAgentTab] || activeAgentTab);
-    const count = visibleSections.reduce((sum, [, findings]) => sum + findings.length, 0);
-    document.getElementById("findingsHeader").textContent = `${label} · ${count} finding${count === 1 ? "" : "s"}`;
-  }
-
-  function renderGroupedFindings(detailedReport) {
-    lastDetailedReport = detailedReport;
-    renderAgentTabs(detailedReport);
-
-    const container = document.getElementById("findingsBody");
-    const rawSections = Object.entries(detailedReport.sections || {});
-
-    if (rawSections.length === 0) {
-      renderFindingsHeader([]);
-      container.innerHTML = emptyState("No findings — nothing to review.");
-      renderSectionNav([]);
-      return;
-    }
-
-    if (!seededTabs.has(activeAgentTab)) {
-      // Default: collapsed, except sections containing at least one critical
-      // finding *within this tab's subset* (agent filter only, independent of
-      // the severity filter, so toggling severities later can't retroactively
-      // change a default that's already been locked in) -- a section with a
-      // critical under one agent may not have one under another.
-      rawSections.forEach(([section, findings]) => {
-        const hasCritical = agentFiltered(findings).some((f) => f.severity === "critical");
-        if (!hasCritical) collapsedSections.add(section);
-      });
-      seededTabs.add(activeAgentTab);
-    }
-
-    const visibleSections = rawSections
-      .map(([section, findings]) => [section, filteredFindings(findings)])
-      .filter(([, findings]) => findings.length > 0);
-
-    renderFindingsHeader(visibleSections);
-
-    if (visibleSections.length === 0) {
-      container.innerHTML = emptyState("No findings match the current filter.");
-      renderSectionNav([]);
-      return;
-    }
-
-    container.innerHTML = visibleSections
-      .map(([section, findings]) => {
-        const isCollapsed = collapsedSections.has(section);
-        return `
-          <div id="${sectionAnchorId(section)}" data-section="${section}">
-            <button type="button" data-section-toggle="${section}" class="mb-3 flex w-full items-center gap-2 text-left text-base font-semibold text-slate-900 dark:text-white">
-              <svg class="h-4 w-4 flex-shrink-0 text-slate-400 transition-transform dark:text-slate-500 ${isCollapsed ? "" : "rotate-90"}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              ${section}
-              <span class="text-xs font-medium text-slate-400 dark:text-slate-500">${findings.length} finding${findings.length === 1 ? "" : "s"}</span>
-            </button>
-            <div class="grid gap-3 ${isCollapsed ? "hidden" : ""}">
-              ${findings.map(findingCard).join("")}
-            </div>
-          </div>
-        `;
-      })
-      .join("");
-
-    container.querySelectorAll("[data-section-toggle]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const section = btn.getAttribute("data-section-toggle");
-        if (collapsedSections.has(section)) collapsedSections.delete(section);
-        else collapsedSections.add(section);
-        renderGroupedFindings(lastDetailedReport);
-      });
-    });
-    bindCardToggles(container);
-
-    renderSectionNav(visibleSections);
-    updateToggleAllLabel(visibleSections.map(([s]) => s));
-  }
-
-  function renderSectionNav(visibleSections) {
-    const nav = document.getElementById("sectionNav");
-    const mobileSelect = document.getElementById("sectionNavMobile");
-
-    if (visibleSections.length === 0) {
-      nav.innerHTML = "";
-      mobileSelect.innerHTML = `<option value="">Jump to section&hellip;</option>`;
-      return;
-    }
-
-    nav.innerHTML = visibleSections
-      .map(([section, findings]) => `
-        <button type="button" data-jump-to="${section}" title="${section}" class="block w-full rounded-md px-3 py-2 text-left text-sm text-slate-600 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800">
-          <span class="line-clamp-1">${section}</span>
-          <span class="text-xs text-slate-400 dark:text-slate-500">${findings.length} finding${findings.length === 1 ? "" : "s"}</span>
+  function findingRow(f) {
+    const colorVar = SEVERITY_COLOR_VAR[f.severity] || SEVERITY_COLOR_VAR.suggestion;
+    const label = SEVERITY_LABEL[f.severity] || f.severity;
+    const isOpen = openRowId === f.id;
+    return `
+      <div class="border-b border-[var(--border)] last:border-b-0">
+        <button type="button" data-row-toggle="${f.id}" class="flex w-full items-center gap-2.5 py-2 text-left">
+          <span class="h-2 w-2 flex-shrink-0 rounded-full" style="background: var(${colorVar});" title="${label}"></span>
+          <span class="w-[130px] flex-shrink-0 truncate text-[11px] text-[var(--text-muted)]" title="${f.category}">${f.category}</span>
+          <span class="min-w-0 flex-1 truncate text-[13px] text-[var(--text-secondary)]" title="${f.description}">${f.description}</span>
+          <svg class="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${isOpen ? "rotate-90" : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-      `)
-      .join("");
-
-    mobileSelect.innerHTML = [`<option value="">Jump to section&hellip;</option>`]
-      .concat(visibleSections.map(([section, findings]) => `<option value="${section}">${section} (${findings.length})</option>`))
-      .join("");
-
-    function jumpTo(section) {
-      collapsedSections.delete(section);
-      renderGroupedFindings(lastDetailedReport);
-      requestAnimationFrame(() => {
-        document.getElementById(sectionAnchorId(section))?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-    }
-
-    nav.querySelectorAll("[data-jump-to]").forEach((btn) => {
-      btn.addEventListener("click", () => jumpTo(btn.getAttribute("data-jump-to")));
-    });
-    mobileSelect.onchange = () => {
-      if (mobileSelect.value) jumpTo(mobileSelect.value);
-      mobileSelect.value = "";
-    };
-  }
-
-  function updateToggleAllLabel(allSectionNames) {
-    const button = document.getElementById("toggleAllButton");
-    const anyCollapsed = allSectionNames.some((s) => collapsedSections.has(s));
-    button.textContent = anyCollapsed ? "Expand all" : "Collapse all";
-  }
-
-  function renderDelta(delta) {
-    const deltaCard = document.getElementById("deltaCard");
-    if (!delta) {
-      deltaCard.classList.add("hidden");
-      return;
-    }
-    deltaCard.classList.remove("hidden");
-
-    const counts = delta.counts || { resolved: 0, still_open: 0, new: 0 };
-    const tile = (label, value, valueClass) => `
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-        <p class="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">${label}</p>
-        <p class="text-xl font-semibold ${valueClass}">${value}</p>
+        <div class="${isOpen ? "" : "hidden"} flex flex-col gap-1 pb-3 pl-[18px] text-xs">
+          <!-- TODO: "Evidence" here is f.evidence -- what shows the finding is real, not
+               why it happened. A true root-cause line would need a backend change (each
+               specialist agent producing a short causal explanation, not just flagged
+               evidence) -- not scoped/started, just marked for later. -->
+          <p><span class="text-[var(--text-muted)]">Evidence</span> <span class="text-[var(--text-secondary)]">${f.evidence}</span></p>
+          <p><span class="text-[var(--text-muted)]">Fix</span> <span class="text-[var(--text-secondary)]">${f.proposed_fix}</span></p>
+        </div>
       </div>
     `;
-    document.getElementById("deltaKpiRow").innerHTML = [
-      tile("Resolved", counts.resolved, "text-emerald-600 dark:text-emerald-400"),
-      tile("Still open", counts.still_open, "text-slate-900 dark:text-white"),
-      tile("New", counts.new, "text-red-600 dark:text-red-400"),
-    ].join("");
-
-    const deltaGroup = (title, findings) => {
-      if (!findings || findings.length === 0) return "";
-      return `
-        <div>
-          <h3 class="mb-3 flex items-baseline gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-            ${title}
-            <span class="text-xs font-medium text-slate-400 dark:text-slate-500">${findings.length}</span>
-          </h3>
-          <div class="grid gap-3">
-            ${findings.map(findingCard).join("")}
-          </div>
-        </div>
-      `;
-    };
-
-    const body = [
-      deltaGroup("New", delta.new),
-      deltaGroup("Still open", delta.still_open),
-      deltaGroup("Resolved", delta.resolved),
-    ].join("");
-    const deltaBody = document.getElementById("deltaBody");
-    deltaBody.innerHTML = body || emptyState("No findings in either run.");
-    bindCardToggles(deltaBody);
   }
 
+  function renderFindingsList() {
+    const container = document.getElementById("findingsListScroll");
+    const filtered = activeFilter === "all" ? lastFindingsFlat : lastFindingsFlat.filter((f) => f.severity === activeFilter);
+    if (filtered.length === 0) {
+      container.innerHTML = emptyState("No findings match the current filter.");
+      return;
+    }
+    container.innerHTML = filtered.map(findingRow).join("");
+    container.querySelectorAll("[data-row-toggle]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-row-toggle");
+        openRowId = openRowId === id ? null : id;
+        renderFindingsList();
+      });
+    });
+  }
+
+  function setActiveFilter(filter) {
+    activeFilter = filter;
+    openRowId = null;
+    renderResultTiles();
+    renderFilterTabs();
+    renderFindingsList();
+  }
+
+  // ---------- top-level report render ----------
   function renderReport(data) {
     window.__qaData = data;
+    lastDashboard = data.dashboard;
+    lastFindingsFlat = Object.values(data.detailed_report.sections || {}).flat();
+    activeFilter = "all";
+    openRowId = null;
+
     const when = new Date().toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-    const documentName = data.document_name;
-    document.getElementById("leftPanelFilename").textContent = documentName || "";
+    const documentName = data.document_name || "";
+    const filenameEl = document.getElementById("leftPanelFilename");
+    filenameEl.textContent = documentName;
+    filenameEl.title = documentName;
     document.getElementById("leftPanelRefreshed").textContent = `Refreshed ${when}`;
+    document.getElementById("fileChip").classList.remove("hidden");
+    document.getElementById("fileChip").classList.add("flex");
 
-    // Every load (a fresh F5 or a Refresh-button re-fetch) starts from a clean nav
-    // state -- stale collapsed-section names, severity filters, and the selected
-    // agent tab from a prior view shouldn't silently carry over.
-    collapsedSections = new Set();
-    seededTabs = new Set();
-    activeSeverityFilter.clear();
-    activeAgentTab = "all";
-
-    renderKpis(data.dashboard);
-    renderDelta(data.delta);
-    renderGroupedFindings(data.detailed_report);
+    renderResultTiles();
+    renderFilterTabs();
+    renderFindingsList();
+    setAgentStatus("done");
   }
-
-  function toggleSeverityFilter(severity) {
-    if (activeSeverityFilter.has(severity)) activeSeverityFilter.delete(severity);
-    else activeSeverityFilter.add(severity);
-    if (window.__qaData) {
-      renderKpis(window.__qaData.dashboard);
-      renderGroupedFindings(window.__qaData.detailed_report);
-    }
-  }
-
-  // Delegated (not re-bound per render, since these containers' innerHTML is replaced on every render).
-  document.getElementById("kpiRow").addEventListener("click", (e) => {
-    const tile = e.target.closest("[data-severity-tile]");
-    if (tile) toggleSeverityFilter(tile.getAttribute("data-severity-tile"));
-  });
-  document.getElementById("stickySummaryContent").addEventListener("click", (e) => {
-    const tile = e.target.closest("[data-severity-tile]");
-    if (tile) toggleSeverityFilter(tile.getAttribute("data-severity-tile"));
-  });
-
-  document.getElementById("toggleAllButton").addEventListener("click", () => {
-    if (!lastDetailedReport) return;
-    const allSectionNames = Object.keys(lastDetailedReport.sections || {});
-    const anyCollapsed = allSectionNames.some((s) => collapsedSections.has(s));
-    if (anyCollapsed) collapsedSections.clear();
-    else allSectionNames.forEach((s) => collapsedSections.add(s));
-    renderGroupedFindings(lastDetailedReport);
-  });
 
   function showState(name) {
     document.getElementById("loadingState").classList.toggle("hidden", name !== "loading");
     document.getElementById("errorState").classList.toggle("hidden", name !== "error");
     document.getElementById("emptyState").classList.toggle("hidden", name !== "empty");
-    document.getElementById("reportContent").classList.toggle("hidden", name !== "content");
-    const stickySummaryBar = document.getElementById("stickySummaryBar");
-    stickySummaryBar.classList.toggle("hidden", name !== "content");
-    stickySummaryBar.classList.toggle("flex", name === "content");
+    document.getElementById("findingsSection").classList.toggle("hidden", name !== "content");
 
     if (name === "empty") {
-      // These live outside #reportContent (left panel text, middle panel's agent
-      // list) so they aren't covered by the toggles above -- renderReport() is
-      // the only other place that sets them, and it never runs on this path.
       window.__qaData = null;
-      document.getElementById("leftPanelFilename").textContent = "";
-      document.getElementById("leftPanelRefreshed").textContent = "";
-      document.getElementById("agentTabs").innerHTML = "";
+      lastDashboard = { counts_by_severity: {}, total_findings: 0 };
+      lastFindingsFlat = [];
+      document.getElementById("fileChip").classList.add("hidden");
+      document.getElementById("fileChip").classList.remove("flex");
+      setAgentStatus("idle");
+      renderResultTiles();
     }
   }
 
@@ -668,8 +376,7 @@
     try {
       await fetch("/api/findings", { method: "DELETE" });
     } catch (err) {
-      // Best-effort -- loadFindings() below will surface any real connectivity
-      // problem via its own error state.
+      // Best-effort -- loadFindings() below will surface any real connectivity problem.
     }
     window.__qaData = null;
     await loadFindings();
@@ -686,7 +393,7 @@
   const analyzeError = document.getElementById("analyzeError");
 
   fileInput.addEventListener("change", () => {
-    fileInputLabel.textContent = fileInput.files[0] ? fileInput.files[0].name : "Drop .docx, .pdf, .pptx";
+    fileInputLabel.textContent = fileInput.files[0] ? fileInput.files[0].name : "Drop file or browse";
   });
 
   function setAnalyzing(isAnalyzing) {
@@ -704,6 +411,7 @@
     analyzeError.classList.add("hidden");
     analyzeStatusText.textContent = "Analyzing… this calls Claude on Bedrock for real, so it can take a minute or two.";
     setAnalyzing(true);
+    setAgentStatus("running");
 
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
@@ -717,18 +425,21 @@
       }
       await loadFindings();
       uploadForm.reset();
-      fileInputLabel.textContent = "Drop .docx, .pdf, .pptx";
+      fileInputLabel.textContent = "Drop file or browse";
     } catch (err) {
       analyzeError.textContent =
         err instanceof TypeError
           ? "Couldn't reach the DeliverableQA server — is it running?"
           : err.message;
       analyzeError.classList.remove("hidden");
+      setAgentStatus("idle");
     } finally {
       setAnalyzing(false);
     }
   });
 
+  setAgentStatus("idle");
+  renderResultTiles();
   loadFindings();
 })();
 </script>
