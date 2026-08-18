@@ -40,11 +40,11 @@ Local-only Python + LangGraph implementation, per the original project proposal.
 - **Style/checklist rules**: YAML config file, editable per engagement type
 - **File handling**: local filesystem
 - **Findings storage**: local JSON
-- **QA Dashboard**: a 3-panel live web app (`dashboard/index.html`), styled with Tailwind CSS via CDN + Chart.js via CDN — no build step. Left panel uploads a deliverable (file + engagement type) and shows the current filename/refresh time, with a header Clear button to reset back to the empty state; middle panel lists the 4 agents with per-agent finding counts; right panel shows the selected agent's findings, grouped by section with collapsible groups and a severity filter. Fetches `GET /api/findings` on load, on a Refresh button, and automatically after a successful upload, so it always reflects the current `output/findings.json` without needing regeneration.
+- **QA Dashboard**: a 3-panel live web app (`dashboard/index.html`), styled with Tailwind CSS via CDN — no build step. Left panel uploads a deliverable (file + engagement type) and shows the current filename/refresh time, with a header Clear button to reset back to the empty state; middle panel lists the 4 agents with per-agent finding counts; right panel shows the selected agent's findings, grouped by section with collapsible groups and a severity filter. Fetches `GET /api/findings` on load, on a Refresh button, and automatically after a successful upload, so it always reflects the current `output/findings.json` without needing regeneration.
 - **Web server**: `server.py`, a FastAPI + uvicorn app. `GET /api/findings` reads `output/findings.json` fresh off disk on every request (no caching); `DELETE /api/findings` deletes it (powers the dashboard's Clear button); `POST /api/analyze` accepts a docx/pptx/pdf upload + engagement type and runs the full pipeline synchronously via `run_qa.run()`, writing the result before responding. A static mount serves `dashboard/`. No auth, no job queue, no concurrency guard — one request blocks for as long as the real Bedrock calls take; `run_qa.py` (CLI) and `POST /api/analyze` (browser) are the two ways to kick off an analysis, both writing the same `output/findings.json`.
 - **Package management**: `uv` — `pyproject.toml` (runtime deps + a `dev` dependency group for `pytest`/`pytest-asyncio`) + `uv.lock` + `.python-version`. Replaces the earlier `requirements.txt` + `venv`/`pip` workflow. `uv sync` installs everything; `uv run <cmd>` runs any command (CLI, server, tests) inside the managed environment without manual activation.
 - **Merge strategies**: the default is the deterministic merge in `orchestrator/merge.py` (dedup via `difflib` similarity + location match, no LLM call). An opt-in LLM-driven merge (`orchestrator/llm_merge.py`, `--llm-merge` on the CLI) instead calls Claude with `prompts/orchestrator.md`'s PHASE 2 instructions, catching semantic duplicates worded very differently across agents — including across different section labels, which the deterministic dedup's exact-location match structurally cannot see (confirmed on a real run: it collapsed 19 findings filed under 3 different section labels down to 15-16). Rejects the response and falls back if the LLM invents a finding id not present in the original input; logs a warning (without falling back) if it silently changes a kept finding's location. Falls back to the deterministic merge on any of the above, an API error, a malformed response, or a validation failure — one bad finding among many good ones discards the whole merge by design (fail-strict — see the inline comment in `llm_merge.py`), so a flaky or partially-wrong LLM call never blocks producing a report, and never produces a partially-trusted one either.
-- **Delta / re-run mode**: `orchestrator/merge.py`'s `compute_delta()` compares a new run's findings against a prior run's `findings.json` (matched by location + description similarity, since re-runs generate fresh finding ids) and reports resolved/still-open/new. Available via `run_qa.py --previous-findings <path>`; the dashboard renders the result as its own card whenever `output/findings.json` has a `delta` key.
+- **Delta / re-run mode**: `orchestrator/merge.py`'s `compute_delta()` compares a new run's findings against a prior run's `findings.json` (matched by location + description similarity, since re-runs generate fresh finding ids) and reports resolved/still-open/new. Available via `run_qa.py --previous-findings <path>`; the dashboard renders the result as its own card whenever `output/findings.json` has a `delta` key. An opt-in LLM-driven refinement (`orchestrator/llm_delta.py`, `--llm-delta`) runs *after* the deterministic match, using `prompts/delta_match.md` to semantically re-examine only the leftovers (findings that didn't structurally match) — catching one that's both reworded and relabeled to a new section between runs, which location+text-similarity can never see since both signals changed at once. No-op (no Bedrock call) when the deterministic delta already matched everything. Fail-strict like `--llm-merge`: rejects an invented id, a double-claimed new_id, or an old_id unaccounted for, falling back to the deterministic delta on any of those or an API/validation failure. Confirmed on a real fixture: correctly reunited a reworded+relabeled finding into still_open while correctly leaving two genuinely-different findings as resolved/new, ~$0.0072 and ~5s.
 - **Prompts**: structured system prompts per agent role, stored as versioned `.md` files (see `prompts/`), loaded at runtime — not hardcoded in source. `prompts/orchestrator.md` is used by the optional LLM-driven merge above (not by the default deterministic path).
 - **Deployment**: none — `server.py` binds to `127.0.0.1` only, no client data leaves the machine.
 
@@ -241,7 +241,7 @@ Output strictly as JSON matching the shared DeliverableQA finding schema.
 2. **Prompts**: the five system prompts above live as versioned `.md` files under `prompts/`, loaded at runtime by each agent module (not hardcoded strings), each enforcing output via the shared JSON schema (structured/forced-JSON output).
 3. **YAML configs**: `config/checklists/{advisory,audit,tax,consulting}.yaml` (required sections) and `config/style_rules.yaml` (fonts, colours, disclaimers).
 4. **Merge logic**: deterministic dedup (semantic similarity on description + same location), severity sort, dashboard aggregation — plus an opt-in LLM-driven merge and a delta/re-run comparison mode (see Tech stack above).
-5. **Dashboard + server**: a 3-panel Tailwind (CDN) + Chart.js app (`dashboard/index.html` — upload/clear, agent nav, findings) backed by a FastAPI server (`server.py`) exposing `GET`/`DELETE /api/findings` and `POST /api/analyze`. The server reads `output/findings.json` live on every request, no rebuild step. Both the CLI (`run_qa.py`) and a browser upload (`POST /api/analyze`) can kick off an analysis; either way the dashboard picks up the result on its next fetch.
+5. **Dashboard + server**: a 3-panel Tailwind (CDN) app (`dashboard/index.html` — upload/clear, agent nav, findings) backed by a FastAPI server (`server.py`) exposing `GET`/`DELETE /api/findings` and `POST /api/analyze`. The server reads `output/findings.json` live on every request, no rebuild step. Both the CLI (`run_qa.py`) and a browser upload (`POST /api/analyze`) can kick off an analysis; either way the dashboard picks up the result on its next fetch.
 6. **Test loop**: a planted-error sample deliverable for every engagement type (advisory, audit, tax, consulting) → run end-to-end → verify each agent's known planted error is caught → tune prompts. Automated coverage lives under `tests/` (pytest, no live API calls — Bedrock calls are mocked), run via `uv run pytest`.
 
 ## Suggested repo structure
@@ -252,7 +252,8 @@ deliverableqa-agent/
 │   ├── parse.py           # docx/pptx/pdf -> section-tagged text; raises DocumentParseError on bad/empty input
 │   ├── dispatch.py         # LangGraph fan-out to the 4 specialist agents
 │   ├── merge.py             # deterministic dedup + severity sort + dashboard shaping + compute_delta()
-│   └── llm_merge.py         # opt-in LLM-driven merge (prompts/orchestrator.md), falls back to merge.py
+│   ├── llm_merge.py         # opt-in LLM-driven merge (prompts/orchestrator.md), falls back to merge.py
+│   └── llm_delta.py         # opt-in LLM-driven delta refinement (prompts/delta_match.md), falls back to compute_delta()
 ├── agents/
 │   ├── schema.py           # shared Pydantic models + Bedrock call wrapper + JSON-repair
 │   ├── consistency.py
@@ -261,6 +262,7 @@ deliverableqa-agent/
 │   └── structure.py
 ├── prompts/
 │   ├── orchestrator.md    # used by orchestrator/llm_merge.py (optional path)
+│   ├── delta_match.md     # used by orchestrator/llm_delta.py (optional path)
 │   ├── consistency.md
 │   ├── brand_format.md
 │   ├── language_tone.md
@@ -272,13 +274,13 @@ deliverableqa-agent/
 │   │   ├── tax.yaml
 │   │   └── consulting.yaml
 │   └── style_rules.yaml
-├── dashboard/             # 3-panel Tailwind (CDN) + Chart.js app; talks to server.py's
+├── dashboard/             # 3-panel Tailwind (CDN) app; talks to server.py's
 │                          #   /api/findings + /api/analyze
 ├── samples/               # one planted-error test deliverable per engagement type + generator scripts
 ├── schema/
 │   └── finding.schema.json
 ├── tests/                 # pytest suite -- no live API calls, Bedrock client is mocked throughout
-├── run_qa.py              # CLI entry point (--previous-findings, --llm-merge) -- one of two ways to
+├── run_qa.py              # CLI entry point (--previous-findings, --llm-merge, --llm-delta) -- one of two ways to
 │                          #   kick off an analysis (the other is POST /api/analyze via the browser)
 ├── server.py              # FastAPI app: GET/DELETE /api/findings, POST /api/analyze
 │                          #   (upload + run pipeline), static mount for dashboard/

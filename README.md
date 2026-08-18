@@ -70,10 +70,11 @@ Local-only — no cloud deployment, no client data leaves the machine.
 | LLM | Claude via Amazon Bedrock, model `global.anthropic.claude-sonnet-5`, forced tool-use for structured output |
 | Parsing | `python-docx`, `python-pptx`, `PyMuPDF` (+ Claude-vision OCR fallback for scanned/image-only docx, pptx, and pdf) |
 | Merge | Deterministic dedup by default (`orchestrator/merge.py`); optional `--llm-merge` for semantic cross-section dedup (`orchestrator/llm_merge.py`) |
-| Dashboard | `dashboard/index.html` — Tailwind CDN + Chart.js, no build step |
+| Delta | Deterministic location + text-similarity match by default (`orchestrator/merge.py`); optional `--llm-delta` to refine unmatched leftovers semantically (`orchestrator/llm_delta.py`) |
+| Dashboard | `dashboard/index.html` — Tailwind CDN, no build step |
 | Server | FastAPI (`server.py`) — upload/analyze, findings, clear endpoints |
 | Package mgmt | `uv` (`pyproject.toml` + `uv.lock`) |
-| Tests | pytest, 92 tests, Bedrock client fully mocked |
+| Tests | pytest, 106 tests, Bedrock client fully mocked |
 
 > Forced tool-use instead of structured outputs: this Bedrock route doesn't support `strict` schemas, and a `$ref`-based schema made Claude stringify nested fields unreliably. See `agents/schema.py`.
 
@@ -91,7 +92,8 @@ deliverableqa-agent/
 │   ├── parse.py           # docx/pptx/pdf -> sections
 │   ├── dispatch.py        # LangGraph fan-out to 4 agents
 │   ├── merge.py           # dedup, severity sort, delta
-│   └── llm_merge.py       # opt-in LLM-driven dedup (--llm-merge)
+│   ├── llm_merge.py       # opt-in LLM-driven dedup (--llm-merge)
+│   └── llm_delta.py       # opt-in LLM-driven delta refinement (--llm-delta)
 │
 ├── agents/                # one Claude call per specialist
 │   ├── schema.py          # shared Pydantic models + Bedrock call wrapper
@@ -103,9 +105,9 @@ deliverableqa-agent/
 ├── prompts/                # versioned system prompts (.md)
 ├── config/                 # per-engagement checklists + style rules
 ├── schema/finding.schema.json
-├── dashboard/index.html    # 3-panel Tailwind + Chart.js app
+├── dashboard/index.html    # 3-panel Tailwind app
 ├── samples/                # planted-error sample deliverable per engagement type
-├── tests/                  # pytest suite, 92 tests
+├── tests/                  # pytest suite, 106 tests
 │
 ├── .agents/skills/deliverableqa-kickoff/   # kickoff skill (Pi)
 └── .claude/skills/deliverableqa-kickoff/   # kickoff skill (Claude Code)
@@ -162,6 +164,7 @@ Upload a document from the dashboard, or run the CLI and hit **Refresh** — bot
 Optional `run_qa.py` flags:
 - `--previous-findings <path>` — adds a resolved/still-open/new delta vs. a prior run
 - `--llm-merge` — one extra Bedrock call to catch cross-section duplicates the default merge can't see (see [Known limitations](#known-limitations))
+- `--llm-delta` — refines `--previous-findings`' delta with one extra Bedrock call to catch a finding reworded *and* relabeled between runs (see [Known limitations](#known-limitations)); no-op if the deterministic delta already matched everything
 
 Run tests:
 
@@ -169,7 +172,7 @@ Run tests:
 uv run pytest
 ```
 
-92 tests, no AWS credentials required — the Bedrock client is mocked throughout.
+106 tests, no AWS credentials required — the Bedrock client is mocked throughout.
 
 > Add `--native-tls` to any `uv run`/`uv sync` command if you're behind a TLS-intercepting corporate proxy.
 
@@ -199,7 +202,7 @@ $lnk.Save()
 - **Single local user** — no auth, no job queue; concurrent uploads can race.
 - **`--llm-merge` is opt-in** — roughly 2x latency and ~$0.09/call; only worth it when you suspect a cross-section duplicate the default merge structurally can't see.
 - **Some server errors return a bare HTTP 500** — check `server.log` (or terminal output) for the real traceback.
-- **Delta matching** (`--previous-findings`) can miss a finding that's both reworded and relabeled to a new section between runs.
+- **`--llm-delta` is opt-in** — refines `--previous-findings`' delta with one extra Bedrock call (~$0.0072, ~5s, measured), only when the deterministic delta leaves findings unmatched on both sides; catches a finding that's both reworded and relabeled to a new section between runs, which the default delta structurally can't see.
 
 ## Agent skill (Pi + Claude Code)
 

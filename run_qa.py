@@ -6,6 +6,7 @@ from pathlib import Path
 from anthropic import AsyncAnthropicBedrock
 
 from orchestrator.dispatch import run_agents
+from orchestrator.llm_delta import llm_compute_delta
 from orchestrator.llm_merge import llm_merge_and_report
 from orchestrator.merge import compute_delta, merge_and_report
 from orchestrator.parse import parse_document_with_ocr_fallback, render_document_context
@@ -36,6 +37,7 @@ async def run(
     output_dir: Path,
     previous_report: dict | None = None,
     use_llm_merge: bool = False,
+    use_llm_delta: bool = False,
     document_name: str | None = None,
 ) -> dict:
     client = AsyncAnthropicBedrock(timeout=BEDROCK_TIMEOUT_SECONDS)
@@ -51,7 +53,10 @@ async def run(
         result = merge_and_report(agent_findings)
 
     if previous_report is not None:
-        result["delta"] = compute_delta(previous_report, result)
+        if use_llm_delta:
+            result["delta"] = await llm_compute_delta(client, previous_report, result)
+        else:
+            result["delta"] = compute_delta(previous_report, result)
 
     result["document_name"] = document_name or document_path.name
     result["engagement_type"] = engagement_type
@@ -92,6 +97,16 @@ def main() -> None:
              "differently across agents, at the cost of one extra Bedrock call. Falls back "
              "to the deterministic merge automatically if the LLM call fails.",
     )
+    parser.add_argument(
+        "--llm-delta",
+        action="store_true",
+        help="Use an LLM call (prompts/delta_match.md) to semantically re-examine only the "
+             "findings the deterministic delta couldn't match (--previous-findings) — catches "
+             "a finding that's both reworded and relabeled to a new section between runs, "
+             "which location+text-similarity matching structurally cannot see. No-op (no "
+             "extra Bedrock call) when the deterministic delta already matched everything. "
+             "Falls back to the deterministic delta automatically if the LLM call fails.",
+    )
     args = parser.parse_args()
 
     if not args.document.exists():
@@ -103,7 +118,10 @@ def main() -> None:
             raise SystemExit(f"--previous-findings file not found: {args.previous_findings}")
         previous_report = json.loads(args.previous_findings.read_text(encoding="utf-8"))
 
-    result = asyncio.run(run(args.document, args.engagement_type, args.output_dir, previous_report, args.llm_merge))
+    result = asyncio.run(run(
+        args.document, args.engagement_type, args.output_dir, previous_report,
+        use_llm_merge=args.llm_merge, use_llm_delta=args.llm_delta,
+    ))
     dashboard = result["dashboard"]
     print(f"Pass/fail: {dashboard['pass_fail']}")
     print(f"Total findings: {dashboard['total_findings']} ({dashboard['counts_by_severity']})")
