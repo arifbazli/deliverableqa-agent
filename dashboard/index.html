@@ -4,19 +4,18 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DeliverableQA report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
+  // System font stack -- no remote webfont, no network round-trip, renders
+  // instantly with whatever's already installed on the user's OS.
   tailwind.config = {
     theme: {
-      extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] } },
+      extend: { fontFamily: { sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', "Roboto", "Helvetica", "Arial", "sans-serif"] } },
     },
   };
 </script>
 <style>
-  body { font-family: "Inter", system-ui, sans-serif; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 
   /* Dark-mode-only design tokens -- single palette, no light-mode branch. */
   :root {
@@ -58,7 +57,7 @@
 
   <header class="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface-2)]/90 backdrop-blur">
     <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-      <div class="flex items-center gap-2 text-[14px] font-medium text-[var(--text-primary)]">
+      <div class="flex items-center gap-2 text-[15px] font-medium text-[var(--text-primary)]">
         <svg class="h-4 w-4 text-[var(--accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/><path d="M9 13.5l1.8 1.8L15 11"/></svg>
         DeliverableQA
       </div>
@@ -82,15 +81,15 @@
 
       <!-- Panel A: Upload -->
       <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
-        <h2 class="text-[13px] font-medium text-[var(--text-primary)]">Upload</h2>
+        <h2 class="text-[14px] font-medium text-[var(--text-primary)]">Upload</h2>
         <form id="uploadForm" class="flex flex-col gap-3">
           <label for="fileInput" class="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[8px] border border-dashed border-[var(--border-strong)] px-2 py-5 text-center transition hover:border-[var(--accent)]">
             <svg class="h-5 w-5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
-            <span id="fileInputLabel" class="text-[11px] text-[var(--text-muted)]">Drop file or browse</span>
+            <span id="fileInputLabel" class="text-[12px] text-[var(--text-muted)]">Drop file or browse</span>
             <input id="fileInput" type="file" accept=".docx,.pdf,.pptx" required class="sr-only" />
           </label>
           <select id="engagementSelect"
-            class="block w-full rounded-md border border-[var(--border)] bg-[var(--fill-secondary)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+            class="block w-full rounded-md border border-[var(--border)] bg-[var(--fill-secondary)] px-3 py-2 text-[13px] text-[var(--text-secondary)]">
             <option value="advisory">Advisory</option>
             <option value="audit">Audit</option>
             <option value="tax">Tax</option>
@@ -100,26 +99,26 @@
         <div id="fileChip" class="hidden items-center gap-2 rounded-md bg-[var(--fill-secondary)] px-2.5 py-2">
           <svg class="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/></svg>
           <div class="min-w-0 flex-1">
-            <p id="leftPanelFilename" class="truncate text-[11px] text-[var(--text-secondary)]"></p>
-            <p id="leftPanelRefreshed" class="text-[10px] text-[var(--text-muted)]"></p>
+            <p id="leftPanelFilename" class="truncate text-[12px] text-[var(--text-secondary)]"></p>
+            <p id="leftPanelRefreshed" class="text-[11px] text-[var(--text-muted)]"></p>
           </div>
         </div>
-        <div id="analyzeError" class="hidden rounded-md border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-2.5 text-xs text-[var(--border-danger)]"></div>
+        <div id="analyzeError" class="hidden rounded-md border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-2.5 text-[13px] leading-normal text-[var(--border-danger)]"></div>
       </div>
 
       <!-- Panel B: Analyze -->
       <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-[13px] font-medium text-[var(--text-primary)]">Analyze</h2>
-          <span id="agentStatusText" class="text-[11px] text-[var(--text-muted)]"></span>
+          <h2 class="text-[14px] font-medium text-[var(--text-primary)]">Analyze</h2>
+          <span id="agentStatusText" class="text-[12px] text-[var(--text-muted)]"></span>
         </div>
         <div id="agentChecklist" class="flex flex-col gap-1.5"></div>
-        <div id="analyzeStatus" class="hidden items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+        <div id="analyzeStatus" class="hidden items-center gap-1.5 text-[12px] leading-normal text-[var(--text-muted)]">
           <svg class="h-3 w-3 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
           <span id="analyzeStatusText">Analyzing&hellip; this calls Claude on Bedrock for real, so it can take a minute or two.</span>
         </div>
         <button id="analyzeButton" type="submit" form="uploadForm"
-          class="mt-auto inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">
+          class="mt-auto inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--accent)] px-4 py-2 text-[13px] font-medium text-white transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50">
           <span id="analyzeButtonLabel">Run analysis</span>
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
         </button>
@@ -128,8 +127,8 @@
       <!-- Panel C: Result -->
       <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-[13px] font-medium text-[var(--text-primary)]">Result</h2>
-          <span id="resultCount" class="text-[11px] text-[var(--text-muted)]"></span>
+          <h2 class="text-[14px] font-medium text-[var(--text-primary)]">Result</h2>
+          <span id="resultCount" class="text-[12px] text-[var(--text-muted)]"></span>
         </div>
         <div id="resultTiles" class="grid grid-cols-3 gap-2"></div>
       </div>
@@ -137,20 +136,20 @@
     </div>
 
     <!-- Findings list: loading / error / empty / content states. -->
-    <div id="loadingState" class="flex items-center justify-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] py-20 text-sm text-[var(--text-muted)]">
+    <div id="loadingState" class="flex items-center justify-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] py-20 text-[15px] text-[var(--text-muted)]">
       <svg class="h-4 w-4 flex-shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9"/></svg>
       Loading report&hellip;
     </div>
 
-    <div id="errorState" class="hidden rounded-[var(--radius)] border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-6 text-sm text-[var(--border-danger)]"></div>
+    <div id="errorState" class="hidden rounded-[var(--radius)] border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-6 text-[15px] leading-normal text-[var(--border-danger)]"></div>
 
-    <div id="emptyState" class="hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-10 text-center text-sm text-[var(--text-muted)]">
+    <div id="emptyState" class="hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-10 text-center text-[15px] leading-normal text-[var(--text-muted)]">
       No findings yet — upload a document to begin.
     </div>
 
     <div id="findingsSection" class="hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
       <div class="mb-3 flex items-center justify-between gap-3">
-        <h2 class="text-[13px] font-medium text-[var(--text-primary)]">All findings</h2>
+        <h2 class="text-[14px] font-medium text-[var(--text-primary)]">All findings</h2>
         <div id="filterTabs" class="flex gap-1"></div>
       </div>
       <div id="findingsListScroll" class="flex flex-col overflow-y-auto" style="max-height: 280px;"></div>
@@ -181,7 +180,7 @@
   // once all 4 agents are done), so this is an honest tri-state, not simulated per-agent timing.
 
   function emptyState(message) {
-    return `<div class="py-6 text-center text-sm text-[var(--text-muted)]">${message}</div>`;
+    return `<div class="py-6 text-center text-[15px] leading-normal text-[var(--text-muted)]">${message}</div>`;
   }
 
   // ---------- Panel B: agent checklist ----------
@@ -201,7 +200,7 @@
     const isDone = status === "done";
     document.getElementById("agentChecklist").innerHTML = AGENT_LIST
       .map((a) => `
-        <div class="flex items-center gap-2 text-[12px]">
+        <div class="flex items-center gap-2 text-[13px]">
           ${agentIcon(isDone)}
           <span class="${isDone ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"}">${a.label}</span>
         </div>
@@ -218,8 +217,8 @@
       <button type="button" data-tile-filter="${severity}"
         class="flex flex-col items-center gap-0.5 rounded-md border px-2 py-2.5 transition"
         style="border-color: ${isActive ? `var(${colorVar})` : "var(--border)"}; background: ${isActive ? `var(${fillVar})` : "transparent"};">
-        <span class="text-[16px] font-medium" style="color: var(${colorVar});">${count}</span>
-        <span class="text-[10px] text-[var(--text-muted)]">${label}</span>
+        <span class="text-[18px] font-medium" style="color: var(${colorVar});">${count}</span>
+        <span class="text-[11px] text-[var(--text-muted)]">${label}</span>
       </button>
     `;
   }
@@ -246,7 +245,7 @@
         const isActive = activeFilter === key;
         return `
           <button type="button" data-filter-tab="${key}"
-            class="rounded-full px-2.5 py-1 text-[11px] font-medium transition ${isActive ? "bg-[var(--accent)] text-white" : "bg-[var(--fill-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}">
+            class="rounded-full px-2.5 py-1 text-[12px] font-medium transition ${isActive ? "bg-[var(--accent)] text-white" : "bg-[var(--fill-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}">
             ${label}
           </button>
         `;
@@ -265,11 +264,11 @@
       <div class="border-b border-[var(--border)] last:border-b-0">
         <button type="button" data-row-toggle="${f.id}" class="flex w-full items-center gap-2.5 py-2 text-left">
           <span class="h-2 w-2 flex-shrink-0 rounded-full" style="background: var(${colorVar});" title="${label}"></span>
-          <span class="w-[130px] flex-shrink-0 truncate text-[11px] text-[var(--text-muted)]" title="${f.category}">${f.category}</span>
+          <span class="w-[130px] flex-shrink-0 truncate text-[12px] text-[var(--text-muted)]" title="${f.category}">${f.category}</span>
           <span class="min-w-0 flex-1 truncate text-[13px] text-[var(--text-secondary)]" title="${f.description}">${f.description}</span>
           <svg class="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${isOpen ? "rotate-90" : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-        <div class="${isOpen ? "" : "hidden"} flex flex-col gap-1 pb-3 pl-[18px] text-xs">
+        <div class="${isOpen ? "" : "hidden"} flex flex-col gap-1 pb-3 pl-[18px] text-[13px] leading-normal">
           <!-- TODO: "Evidence" here is f.evidence -- what shows the finding is real, not
                why it happened. A true root-cause line would need a backend change (each
                specialist agent producing a short causal explanation, not just flagged
