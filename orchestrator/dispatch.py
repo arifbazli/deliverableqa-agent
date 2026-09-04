@@ -1,3 +1,4 @@
+import logging
 import operator
 from typing import Annotated, TypedDict
 
@@ -6,6 +7,8 @@ from langgraph.graph import END, START, StateGraph
 
 from agents import brand_format, consistency, language_tone, structure
 from agents.schema import AgentFindings
+
+logger = logging.getLogger(__name__)
 
 AGENT_MODULES = {
     "consistency": consistency,
@@ -25,7 +28,16 @@ def _make_node(name: str, client: AsyncAnthropicBedrock):
     module = AGENT_MODULES[name]
 
     async def node(state: QAState) -> dict:
-        result = await module.check(client, state["document_context"])
+        try:
+            result = await module.check(client, state["document_context"])
+        except Exception:
+            # Without this, one agent failing (rate limit, transient Bedrock error, a
+            # response that fails validation) propagates out of the whole ainvoke() and
+            # discards the other 3 agents' already-completed, expensive LLM results too.
+            # An empty-findings placeholder lets the run still produce a report from
+            # whichever agents succeeded, at the cost of an honest gap for this one.
+            logger.exception("Agent %r failed; continuing with the other agents.", name)
+            result = AgentFindings(agent=name, findings=[])
         return {"agent_findings": [result]}
 
     return node

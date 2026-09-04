@@ -1,8 +1,10 @@
+import json
 import logging
 import tempfile
 from pathlib import Path
 
 import anthropic
+import pydantic
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 FINDINGS_PATH = REPO_ROOT / "output" / "findings.json"
 ALLOWED_SUFFIXES = {".docx", ".pptx", ".pdf"}
+MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024  # matches the dashboard's own advisory cap
 
 app = FastAPI(title="DeliverableQA")
 
@@ -21,7 +24,17 @@ app = FastAPI(title="DeliverableQA")
 async def get_findings():
     if not FINDINGS_PATH.exists():
         raise HTTPException(404, "No findings yet — run run_qa.py against a deliverable first.")
-    return Response(FINDINGS_PATH.read_text(encoding="utf-8"), media_type="application/json")
+    raw = FINDINGS_PATH.read_text(encoding="utf-8")
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError as e:
+        # An interrupted write (e.g. a crash mid-write_text()) can leave findings.json
+        # truncated. Without this check, the corrupted text is served as-is and the
+        # dashboard's res.json() throws a raw SyntaxError that its error handling
+        # doesn't recognize, instead of the app's normal clean error banner.
+        logger.exception("findings.json is not valid JSON")
+        raise HTTPException(500, f"Stored findings are corrupted and could not be read: {e}")
+    return Response(raw, media_type="application/json")
 
 
 @app.delete("/api/findings")
@@ -40,6 +53,12 @@ async def analyze(file: UploadFile = File(...), engagement_type: str = Form(...)
         raise HTTPException(400, f"Unsupported file type {suffix or '(none)'} — expected .docx, .pptx, or .pdf")
 
     content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            413,
+            f"File is too large ({len(content) / 1024 / 1024:.1f}MB) — "
+            f"the limit is {MAX_UPLOAD_SIZE_BYTES // 1024 // 1024}MB.",
+        )
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(content)
         tmp_path = Path(tmp.name)
@@ -53,6 +72,14 @@ async def analyze(file: UploadFile = File(...), engagement_type: str = Form(...)
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")
     except anthropic.APIConnectionError:
         raise HTTPException(502, "Could not reach Claude on Bedrock — check AWS credentials and network.")
+    except pydantic.ValidationError as e:
+        # pydantic.ValidationError subclasses ValueError, so without this branch ahead
+        # of the one below, a genuine LLM-formatting fault (an agent's response that
+        # survived _repair_tool_input but still fails schema validation) would get
+        # reported to the uploader as their own bad request (400) instead of the
+        # server/LLM fault it actually is.
+        logger.exception("Agent response failed schema validation")
+        raise HTTPException(502, f"Claude returned a response that didn't match the expected findings schema: {e}")
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:

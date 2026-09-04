@@ -63,11 +63,11 @@
       </div>
       <div class="flex items-center gap-1.5">
         <button id="refreshButton" type="button" aria-label="Refresh" title="Refresh"
-          class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
+          class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/></svg>
         </button>
         <button id="clearButton" type="button" aria-label="Clear" title="Clear"
-          class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]">
+          class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] transition hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
         </button>
       </div>
@@ -83,7 +83,7 @@
       <div class="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-4">
         <h2 class="text-[14px] font-medium text-[var(--text-primary)]">Upload</h2>
         <form id="uploadForm" class="flex flex-col gap-3">
-          <label for="fileInput" class="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[8px] border border-dashed border-[var(--border-strong)] px-2 py-5 text-center transition hover:border-[var(--accent)]">
+          <label id="fileDropZone" for="fileInput" class="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[8px] border border-dashed border-[var(--border-strong)] px-2 py-5 text-center transition hover:border-[var(--accent)]">
             <svg class="h-5 w-5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
             <span id="fileInputLabel" class="text-[12px] text-[var(--text-muted)]">Drop file or browse</span>
             <input id="fileInput" type="file" accept=".docx,.pdf,.pptx" required class="sr-only" />
@@ -173,7 +173,6 @@
   // ---------- state ----------
   let activeFilter = "all"; // single-select: exactly one of FILTERS is active at a time
   let openRowId = null; // accordion: at most one finding row expanded at a time
-  let lastDashboard = { counts_by_severity: {}, total_findings: 0 };
   let lastFindingsFlat = [];
   let agentStatus = "idle"; // "idle" | "running" | "done" -- see plan notes: the backend
   // has no per-agent progress signal (POST /api/analyze is one call that only resolves
@@ -181,6 +180,16 @@
 
   function emptyState(message) {
     return `<div class="py-6 text-center text-[15px] leading-normal text-[var(--text-muted)]">${message}</div>`;
+  }
+
+  // Finding text (description/evidence/proposed_fix/category/id) originates from the
+  // uploaded document's content and/or LLM output -- never developer-authored -- so it
+  // must be escaped before going into innerHTML. Never interpolate a finding field
+  // without passing it through this first.
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c]);
   }
 
   // ---------- Panel B: agent checklist ----------
@@ -214,7 +223,7 @@
     const colorVar = SEVERITY_COLOR_VAR[severity];
     const fillVar = SEVERITY_FILL_VAR[severity];
     return `
-      <button type="button" data-tile-filter="${severity}"
+      <button type="button" data-tile-filter="${severity}" aria-pressed="${isActive}"
         class="flex flex-col items-center gap-0.5 rounded-md border px-2 py-2.5 transition"
         style="border-color: ${isActive ? `var(${colorVar})` : "var(--border)"}; background: ${isActive ? `var(${fillVar})` : "transparent"};">
         <span class="text-[18px] font-medium" style="color: var(${colorVar});">${count}</span>
@@ -223,18 +232,24 @@
     `;
   }
 
+  // Tile counts are derived from the same lastFindingsFlat array the row list itself
+  // filters -- not a separately-computed backend summary -- so the tiles and the list
+  // can never disagree with each other.
   function renderResultTiles() {
-    const counts = lastDashboard.counts_by_severity || {};
+    const counts = { critical: 0, warning: 0, suggestion: 0 };
+    for (const f of lastFindingsFlat) {
+      if (counts[f.severity] !== undefined) counts[f.severity] += 1;
+    }
     const container = document.getElementById("resultTiles");
     container.innerHTML = [
-      resultTile("critical", "Critical", counts.critical || 0),
-      resultTile("warning", "Warning", counts.warning || 0),
-      resultTile("suggestion", "Suggestion", counts.suggestion || 0),
+      resultTile("critical", "Critical", counts.critical),
+      resultTile("warning", "Warning", counts.warning),
+      resultTile("suggestion", "Suggestion", counts.suggestion),
     ].join("");
     container.querySelectorAll("[data-tile-filter]").forEach((btn) => {
       btn.addEventListener("click", () => setActiveFilter(btn.getAttribute("data-tile-filter")));
     });
-    document.getElementById("resultCount").textContent = `${lastDashboard.total_findings || 0} findings`;
+    document.getElementById("resultCount").textContent = `${lastFindingsFlat.length} findings`;
   }
 
   // ---------- findings list: filter tabs + accordion rows ----------
@@ -244,7 +259,7 @@
       .map(([key, label]) => {
         const isActive = activeFilter === key;
         return `
-          <button type="button" data-filter-tab="${key}"
+          <button type="button" data-filter-tab="${key}" aria-pressed="${isActive}"
             class="rounded-full px-2.5 py-1 text-[12px] font-medium transition ${isActive ? "bg-[var(--accent)] text-white" : "bg-[var(--fill-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}">
             ${label}
           </button>
@@ -260,21 +275,23 @@
     const colorVar = SEVERITY_COLOR_VAR[f.severity] || SEVERITY_COLOR_VAR.suggestion;
     const label = SEVERITY_LABEL[f.severity] || f.severity;
     const isOpen = openRowId === f.id;
+    const safeId = escapeHtml(f.id);
+    const detailId = `finding-detail-${safeId}`;
     return `
       <div class="border-b border-[var(--border)] last:border-b-0">
-        <button type="button" data-row-toggle="${f.id}" class="flex w-full items-center gap-2.5 py-2 text-left">
-          <span class="h-2 w-2 flex-shrink-0 rounded-full" style="background: var(${colorVar});" title="${label}"></span>
-          <span class="w-[130px] flex-shrink-0 truncate text-[12px] text-[var(--text-muted)]" title="${f.category}">${f.category}</span>
-          <span class="min-w-0 flex-1 truncate text-[13px] text-[var(--text-secondary)]" title="${f.description}">${f.description}</span>
+        <button type="button" data-row-toggle="${safeId}" aria-expanded="${isOpen}" aria-controls="${detailId}" class="flex w-full items-center gap-2.5 py-2 text-left">
+          <span class="h-2 w-2 flex-shrink-0 rounded-full" style="background: var(${colorVar});" aria-hidden="true"></span>
+          <span class="w-[160px] flex-shrink-0 truncate text-[12px] text-[var(--text-muted)]" title="${escapeHtml(label)} — ${escapeHtml(f.category)}">${escapeHtml(label)} · ${escapeHtml(f.category)}</span>
+          <span class="min-w-0 flex-1 truncate text-[13px] text-[var(--text-secondary)]" title="${escapeHtml(f.description)}">${escapeHtml(f.description)}</span>
           <svg class="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${isOpen ? "rotate-90" : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-        <div class="${isOpen ? "" : "hidden"} flex flex-col gap-1 pb-3 pl-[18px] text-[13px] leading-normal">
+        <div id="${detailId}" class="${isOpen ? "" : "hidden"} flex flex-col gap-1 pb-3 pl-[18px] text-[13px] leading-normal">
           <!-- TODO: "Evidence" here is f.evidence -- what shows the finding is real, not
                why it happened. A true root-cause line would need a backend change (each
                specialist agent producing a short causal explanation, not just flagged
                evidence) -- not scoped/started, just marked for later. -->
-          <p><span class="text-[var(--text-muted)]">Evidence</span> <span class="text-[var(--text-secondary)]">${f.evidence}</span></p>
-          <p><span class="text-[var(--text-muted)]">Fix</span> <span class="text-[var(--text-secondary)]">${f.proposed_fix}</span></p>
+          <p><span class="text-[var(--text-muted)]">Evidence</span> <span class="text-[var(--text-secondary)]">${escapeHtml(f.evidence)}</span></p>
+          <p><span class="text-[var(--text-muted)]">Fix</span> <span class="text-[var(--text-secondary)]">${escapeHtml(f.proposed_fix)}</span></p>
         </div>
       </div>
     `;
@@ -307,8 +324,6 @@
 
   // ---------- top-level report render ----------
   function renderReport(data) {
-    window.__qaData = data;
-    lastDashboard = data.dashboard;
     lastFindingsFlat = Object.values(data.detailed_report.sections || {}).flat();
     activeFilter = "all";
     openRowId = null;
@@ -335,8 +350,6 @@
     document.getElementById("findingsSection").classList.toggle("hidden", name !== "content");
 
     if (name === "empty") {
-      window.__qaData = null;
-      lastDashboard = { counts_by_severity: {}, total_findings: 0 };
       lastFindingsFlat = [];
       document.getElementById("fileChip").classList.add("hidden");
       document.getElementById("fileChip").classList.remove("flex");
@@ -345,10 +358,19 @@
     }
   }
 
+  // Refresh/Clear/post-analyze all call this -- an AbortController ensures that if a
+  // newer call starts before an older one resolves, the older one's response is
+  // discarded instead of racing to render last and silently winning.
+  let findingsAbortController = null;
+
   async function loadFindings() {
+    findingsAbortController?.abort();
+    const controller = new AbortController();
+    findingsAbortController = controller;
+
     showState("loading");
     try {
-      const res = await fetch("/api/findings", { cache: "no-store" });
+      const res = await fetch("/api/findings", { cache: "no-store", signal: controller.signal });
       if (res.status === 404) {
         showState("empty");
         return;
@@ -361,6 +383,7 @@
       renderReport(data);
       showState("content");
     } catch (err) {
+      if (err.name === "AbortError") return; // superseded by a newer loadFindings() call
       document.getElementById("errorState").textContent =
         err instanceof TypeError
           ? "Couldn't reach the DeliverableQA server — is it running? (uv run server.py)"
@@ -377,7 +400,6 @@
     } catch (err) {
       // Best-effort -- loadFindings() below will surface any real connectivity problem.
     }
-    window.__qaData = null;
     await loadFindings();
   });
 
@@ -385,27 +407,102 @@
   const uploadForm = document.getElementById("uploadForm");
   const fileInput = document.getElementById("fileInput");
   const fileInputLabel = document.getElementById("fileInputLabel");
+  const fileDropZone = document.getElementById("fileDropZone");
   const engagementSelect = document.getElementById("engagementSelect");
   const analyzeButton = document.getElementById("analyzeButton");
   const analyzeStatus = document.getElementById("analyzeStatus");
   const analyzeStatusText = document.getElementById("analyzeStatusText");
   const analyzeError = document.getElementById("analyzeError");
+  const refreshButton = document.getElementById("refreshButton");
+  const clearButton = document.getElementById("clearButton");
+
+  const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".pptx"];
+  const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // advisory client-side cap -- the real limit is enforced server-side
+
+  // Runs before an expensive upload+analyze round trip (and before a drag-drop is
+  // even accepted) so an obviously-wrong file is rejected immediately instead of
+  // after a multi-minute wait for the server to say the same thing.
+  function validateSelectedFile(file) {
+    if (!file) return "Choose a file to analyze.";
+    const name = file.name.toLowerCase();
+    if (!ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+      return `Unsupported file type — expected ${ALLOWED_EXTENSIONS.join(", ")}.`;
+    }
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return `File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB) — the limit is ${MAX_FILE_SIZE_BYTES / 1024 / 1024}MB.`;
+    }
+    return null;
+  }
+
+  function showAnalyzeError(message) {
+    analyzeError.textContent = message;
+    analyzeError.classList.remove("hidden");
+  }
 
   fileInput.addEventListener("change", () => {
-    fileInputLabel.textContent = fileInput.files[0] ? fileInput.files[0].name : "Drop file or browse";
+    const file = fileInput.files[0];
+    fileInputLabel.textContent = file ? file.name : "Drop file or browse";
+    if (file) {
+      const error = validateSelectedFile(file);
+      if (error) {
+        showAnalyzeError(error);
+      } else {
+        analyzeError.classList.add("hidden");
+      }
+    }
+  });
+
+  // Drag-and-drop -- the drop zone's label already says "Drop file or browse", but
+  // until these listeners existed that was aspirational: dropping a file fell through
+  // to the browser's default (typically navigating the tab to the file), destroying
+  // the app's in-memory state.
+  ["dragenter", "dragover"].forEach((evt) => {
+    fileDropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      fileDropZone.classList.add("border-[var(--accent)]");
+    });
+  });
+  ["dragleave", "drop"].forEach((evt) => {
+    fileDropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      fileDropZone.classList.remove("border-[var(--accent)]");
+    });
+  });
+  fileDropZone.addEventListener("drop", (e) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    const error = validateSelectedFile(file);
+    if (error) {
+      showAnalyzeError(error);
+      return;
+    }
+    fileInput.files = e.dataTransfer.files;
+    fileInputLabel.textContent = file.name;
+    analyzeError.classList.add("hidden");
   });
 
   function setAnalyzing(isAnalyzing) {
     analyzeButton.disabled = isAnalyzing;
     fileInput.disabled = isAnalyzing;
     engagementSelect.disabled = isAnalyzing;
+    // Refresh/Clear used to stay clickable during an in-flight analyze, letting their
+    // independent /api/findings calls race the post-analyze loadFindings() call below
+    // (loadFindings()'s AbortController now protects against the same race, but
+    // disabling these too keeps the UI from inviting it in the first place).
+    refreshButton.disabled = isAnalyzing;
+    clearButton.disabled = isAnalyzing;
     analyzeStatus.classList.toggle("hidden", !isAnalyzing);
     analyzeStatus.classList.toggle("flex", isAnalyzing);
   }
 
   uploadForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!fileInput.files[0]) return;
+    const file = fileInput.files[0];
+    const validationError = validateSelectedFile(file);
+    if (validationError) {
+      showAnalyzeError(validationError);
+      return;
+    }
 
     analyzeError.classList.add("hidden");
     analyzeStatusText.textContent = "Analyzing… this calls Claude on Bedrock for real, so it can take a minute or two.";
@@ -413,7 +510,7 @@
     setAgentStatus("running");
 
     const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
+    formData.append("file", file);
     formData.append("engagement_type", engagementSelect.value);
 
     try {
@@ -426,11 +523,11 @@
       uploadForm.reset();
       fileInputLabel.textContent = "Drop file or browse";
     } catch (err) {
-      analyzeError.textContent =
+      showAnalyzeError(
         err instanceof TypeError
           ? "Couldn't reach the DeliverableQA server — is it running?"
-          : err.message;
-      analyzeError.classList.remove("hidden");
+          : err.message
+      );
       setAgentStatus("idle");
     } finally {
       setAnalyzing(false);

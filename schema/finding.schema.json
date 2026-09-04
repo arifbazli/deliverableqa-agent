@@ -1,40 +1,108 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "DeliverableQA Finding",
+  "title": "DeliverableQA Findings Report",
+  "description": "The response shape of GET /api/findings (and run_qa.py's findings.json) -- the merged, deduplicated report served to the dashboard. NOT the raw per-agent tool-call payload each specialist agent returns internally (that shape is AgentFindings in agents/schema.py, used only between run_agent() and the merge step).",
   "type": "object",
-  "properties": {
-    "agent": {
-      "type": "string",
-      "enum": ["consistency", "brand_format", "language_tone", "structure"]
-    },
-    "findings": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "string", "description": "unique per agent run" },
-          "location": {
-            "type": "object",
-            "properties": {
-              "page": { "type": ["integer", "null"] },
-              "section": { "type": "string" }
-            },
-            "required": ["page", "section"]
-          },
-          "severity": { "type": "string", "enum": ["critical", "warning", "suggestion"] },
-          "category": { "type": "string" },
-          "description": { "type": "string" },
-          "evidence": { "type": "string" },
-          "proposed_fix": { "type": "string" },
-          "merged_from": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "present only on findings the orchestrator's merge step deduplicated against another agent's finding"
-          }
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Namespaced by owning agent at creation time (e.g. \"consistency:1\") so it stays globally unique across all 4 agents' output, not just unique per agent run."
         },
-        "required": ["id", "location", "severity", "category", "description", "evidence", "proposed_fix"]
-      }
+        "location": {
+          "type": "object",
+          "properties": {
+            "page": { "type": ["integer", "null"] },
+            "section": { "type": "string" }
+          },
+          "required": ["page", "section"]
+        },
+        "severity": { "type": "string", "enum": ["critical", "warning", "suggestion"] },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "evidence": { "type": "string" },
+        "proposed_fix": { "type": "string" },
+        "merged_from": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "ids of other findings absorbed into this one during merge. Empty unless this finding is the surviving side of a deduplication."
+        },
+        "agent": {
+          "type": ["string", "null"],
+          "enum": ["consistency", "brand_format", "language_tone", "structure", null],
+          "description": "The specialist agent that produced this finding. Stamped during merge, not self-reported per-finding by the agent."
+        }
+      },
+      "required": ["id", "location", "severity", "category", "description", "evidence", "proposed_fix"]
+    },
+    "dashboard": {
+      "type": "object",
+      "properties": {
+        "counts_by_severity": {
+          "type": "object",
+          "properties": {
+            "critical": { "type": "integer" },
+            "warning": { "type": "integer" },
+            "suggestion": { "type": "integer" }
+          },
+          "required": ["critical", "warning", "suggestion"]
+        },
+        "counts_by_agent": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" },
+          "description": "Keyed by agent name; one entry per agent that ran."
+        },
+        "top_critical": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/finding" },
+          "description": "Up to the first 5 critical findings, in report order."
+        },
+        "pass_fail": { "type": "string", "enum": ["pass", "fail"] },
+        "total_findings": { "type": "integer" }
+      },
+      "required": ["counts_by_severity", "counts_by_agent", "top_critical", "pass_fail", "total_findings"]
+    },
+    "delta": {
+      "type": "object",
+      "description": "Present only when the run was invoked with a previous report to compare against (run_qa.py --previous-findings). Absent from a first-time analysis.",
+      "properties": {
+        "resolved": { "type": "array", "items": { "$ref": "#/definitions/finding" } },
+        "still_open": { "type": "array", "items": { "$ref": "#/definitions/finding" } },
+        "new": { "type": "array", "items": { "$ref": "#/definitions/finding" } },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "resolved": { "type": "integer" },
+            "still_open": { "type": "integer" },
+            "new": { "type": "integer" }
+          },
+          "required": ["resolved", "still_open", "new"]
+        }
+      },
+      "required": ["resolved", "still_open", "new", "counts"]
     }
   },
-  "required": ["agent", "findings"]
+  "properties": {
+    "dashboard": { "$ref": "#/definitions/dashboard" },
+    "detailed_report": {
+      "type": "object",
+      "properties": {
+        "sections": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/finding" }
+          },
+          "description": "Keyed by document section/slide/page label; each value is that section's findings."
+        }
+      },
+      "required": ["sections"]
+    },
+    "document_name": { "type": "string" },
+    "engagement_type": { "type": "string", "enum": ["advisory", "audit", "tax", "consulting"] },
+    "delta": { "$ref": "#/definitions/delta" }
+  },
+  "required": ["dashboard", "detailed_report", "document_name", "engagement_type"]
 }
