@@ -9,7 +9,7 @@ from pydantic.json_schema import SkipJsonSchema
 MODEL = "global.anthropic.claude-sonnet-5"
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
-AgentName = Literal["orchestrator", "consistency", "brand_format", "language_tone", "structure"]
+AgentName = Literal["consistency", "brand_format", "language_tone", "structure"]
 Severity = Literal["critical", "warning", "suggestion"]
 
 
@@ -147,5 +147,17 @@ async def run_agent(client: AsyncAnthropicBedrock, agent_name: AgentName, prompt
     )
     for block in response.content:
         if block.type == "tool_use":
-            return AgentFindings.model_validate(_repair_tool_input(block.input))
+            result = AgentFindings.model_validate(_repair_tool_input(block.input))
+            # Anchor to the actual invocation context rather than trusting the model's
+            # self-report -- both because a self-reported `agent` value is never
+            # validated against which agent was actually invoked, and because this is
+            # the earliest point where each finding's id can be namespaced so it stays
+            # globally unique for every downstream consumer (dedupe(), llm_merge's
+            # id-keyed dicts, the dashboard's accordion state) which all currently
+            # assume global uniqueness that the schema itself only promises per-agent
+            # ("id" is documented as "unique per agent run" -- two agents independently
+            # numbering findings "1", "2"... is otherwise a real, unconstrained
+            # possibility the model's tool schema does nothing to prevent).
+            findings = [f.model_copy(update={"id": f"{agent_name}:{f.id}"}) for f in result.findings]
+            return result.model_copy(update={"agent": agent_name, "findings": findings})
     raise RuntimeError(f"{agent_name}: no tool_use block in response (stop_reason={response.stop_reason})")

@@ -1,3 +1,4 @@
+import pydantic
 from fastapi.testclient import TestClient
 
 import server
@@ -74,6 +75,45 @@ class TestAnalyze:
         assert resp.status_code == 502
         assert "AWS credentials" in resp.json()["detail"]
 
+    def test_pydantic_validation_error_returns_502_not_400(self, monkeypatch):
+        # pydantic.ValidationError subclasses ValueError -- without a dedicated branch
+        # ahead of the generic `except ValueError`, this genuine LLM-formatting fault
+        # would get reported to the uploader as their own bad request (400).
+        class _Tiny(pydantic.BaseModel):
+            x: int
+
+        async def _fake_run(*a, **kw):
+            _Tiny.model_validate({"x": "not-a-number"})
+
+        monkeypatch.setattr(server, "run", _fake_run)
+        client = TestClient(server.app)
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 502
+        assert "didn't match the expected findings schema" in resp.json()["detail"]
+
+    def test_rejects_oversized_upload(self, monkeypatch):
+        async def _should_not_be_called(*a, **kw):
+            raise AssertionError("run() should not be called for an oversized upload")
+
+        monkeypatch.setattr(server, "run", _should_not_be_called)
+        monkeypatch.setattr(server, "MAX_UPLOAD_SIZE_BYTES", 10)
+        client = TestClient(server.app)
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", b"this content is definitely longer than ten bytes")},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 413
+        assert "too large" in resp.json()["detail"]
+
     def test_unexpected_exception_returns_a_message_instead_of_a_bare_500(self, monkeypatch, caplog):
         async def _fake_run(*a, **kw):
             raise KeyError("some_unexpected_key")
@@ -126,3 +166,30 @@ class TestClearFindings:
         resp = client.get("/api/findings")
 
         assert resp.status_code == 404
+
+
+class TestGetFindings:
+    def test_returns_500_with_clean_message_on_corrupted_json(self, monkeypatch, tmp_path):
+        # An interrupted write (e.g. a crash mid-write_text()) can leave findings.json
+        # truncated -- this must surface as the app's normal clean error, not a raw
+        # JSON-parser error served straight to the client.
+        findings_path = tmp_path / "findings.json"
+        findings_path.write_text('{"dashboard": {truncated', encoding="utf-8")
+        monkeypatch.setattr(server, "FINDINGS_PATH", findings_path)
+        client = TestClient(server.app)
+
+        resp = client.get("/api/findings")
+
+        assert resp.status_code == 500
+        assert "corrupted" in resp.json()["detail"]
+
+    def test_returns_valid_json_unchanged(self, monkeypatch, tmp_path):
+        findings_path = tmp_path / "findings.json"
+        findings_path.write_text('{"dashboard": {"total_findings": 0}}', encoding="utf-8")
+        monkeypatch.setattr(server, "FINDINGS_PATH", findings_path)
+        client = TestClient(server.app)
+
+        resp = client.get("/api/findings")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"dashboard": {"total_findings": 0}}

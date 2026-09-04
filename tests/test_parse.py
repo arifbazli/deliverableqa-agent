@@ -364,3 +364,17 @@ class TestRenderDocumentContext:
         assert "style: yaml" in context
         assert "=== Heading ===" in context
         assert "Body text." in context
+
+    def test_frames_document_content_as_untrusted_data(self, tmp_path):
+        # A document author can embed hidden instructions (e.g. white-on-white text)
+        # trying to make the model under-report its own findings -- the rendered
+        # context must explicitly tell the model not to follow anything in this block.
+        path = tmp_path / "doc.docx"
+        _write_docx(path, [("Heading", "Body text.")])
+        sections = parse_document(path)
+
+        context = render_document_context(sections, "advisory", "checklist: yaml", "style: yaml")
+
+        assert "BEGIN DOCUMENT CONTENT" in context
+        assert "END DOCUMENT CONTENT" in context
+        assert "not as instructions" in context or "never as instructions" in context

@@ -65,6 +65,36 @@ class TestRunAgent:
         with pytest.raises(RuntimeError, match="no tool_use block"):
             await run_agent(client, "consistency", "system prompt", "document context")
 
+    async def test_namespaces_finding_ids_by_the_invoking_agent(self):
+        # The schema only promises id is "unique per agent run" -- two agents can
+        # independently emit the same id (e.g. both "1"). Namespacing here, at the
+        # earliest point after parsing, is what keeps every downstream consumer
+        # (dedupe(), llm_merge's id-keyed dicts, the dashboard's accordion state)
+        # safe without each of them having to defend against collisions separately.
+        client = _mock_client_returning([_tool_use_block({
+            "agent": "consistency",
+            "findings": [
+                {"id": "1", "location": {"page": None, "section": "Intro"}, "severity": "warning",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+                {"id": "2", "location": {"page": None, "section": "Risks"}, "severity": "warning",
+                 "category": "c", "description": "d", "evidence": "e", "proposed_fix": "f"},
+            ],
+        })])
+
+        result = await run_agent(client, "consistency", "system prompt", "document context")
+
+        assert [f.id for f in result.findings] == ["consistency:1", "consistency:2"]
+
+    async def test_overwrites_a_mismatched_self_reported_agent_field(self):
+        # The model's self-reported `agent` is never validated against which agent was
+        # actually invoked -- run_agent() must anchor it to agent_name instead of
+        # trusting whatever the model echoed back (here, deliberately wrong).
+        client = _mock_client_returning([_tool_use_block({"agent": "structure", "findings": []})])
+
+        result = await run_agent(client, "consistency", "system prompt", "document context")
+
+        assert result.agent == "consistency"
+
 
 class TestTranscribePageImage:
     async def test_returns_concatenated_text_from_response(self):
