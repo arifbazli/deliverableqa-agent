@@ -216,6 +216,36 @@ class TestLlmComputeDelta:
 
         assert result == compute_delta(previous, current)
 
+    async def test_falls_back_when_old_candidates_have_duplicate_ids(self):
+        # id is only documented as unique per agent run, not globally -- a report
+        # from before per-agent id namespacing was added can have two genuinely
+        # different findings sharing one id. Without the guard, old_by_id/valid_old_ids
+        # would silently collapse to one entry and could drop a finding with no error.
+        previous = _report_from(
+            _finding("dup", "Intro", description="First distinct issue text here."),
+            _finding("dup", "Body", description="Second, totally different issue text."),
+        )
+        current = _report_from(_finding("new1", "Summary"))
+        client = _mock_client_returning_tool_use({"matches": [], "resolved": []})
+
+        result = await llm_compute_delta(client, previous, current)
+
+        assert result == compute_delta(previous, current)
+        client.messages.create.assert_not_called()
+
+    async def test_falls_back_when_new_candidates_have_duplicate_ids(self):
+        previous = _report_from(_finding("old1", "Intro"))
+        current = _report_from(
+            _finding("dup", "Body", description="First distinct issue text here."),
+            _finding("dup", "Summary", description="Second, totally different issue text."),
+        )
+        client = _mock_client_returning_tool_use({"matches": [], "resolved": []})
+
+        result = await llm_compute_delta(client, previous, current)
+
+        assert result == compute_delta(previous, current)
+        client.messages.create.assert_not_called()
+
     async def test_recovers_stringified_matches_field_via_repair(self):
         previous = _report_from(_finding("old1", "Intro"))
         current = _report_from(_finding("new1", "Summary"))

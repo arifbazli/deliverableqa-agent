@@ -16,8 +16,10 @@ rewrite in "proposed_fix" — not just "make this more specific," but the actual
 rewritten sentence.
 
 Severity default: warning for unsubstantiated claims and vague recommendations;
-suggestion for passive voice and minor informality; escalate to critical only if the
-vague/unsubstantiated language appears in a headline recommendation the client would
-act on financially.
+suggestion for passive voice and minor informality; escalate to critical when the
+vague/unsubstantiated language appears in a headline recommendation or any
+client-facing commitment the client would act on — not only when the impact is
+explicitly financial (this mirrors how the other specialist agents scope their own
+critical bar, so severity stays comparable across agents).
 
 Output strictly as JSON matching the shared DeliverableQA finding schema.

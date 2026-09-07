@@ -86,7 +86,10 @@
           <label id="fileDropZone" for="fileInput" class="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-[8px] border border-dashed border-[var(--border-strong)] px-2 py-5 text-center transition hover:border-[var(--accent)]">
             <svg class="h-5 w-5 text-[var(--text-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
             <span id="fileInputLabel" class="text-[12px] text-[var(--text-muted)]">Drop file or browse</span>
-            <input id="fileInput" type="file" accept=".docx,.pdf,.pptx" required class="sr-only" />
+            <!-- No `required` here -- it would make the browser's native constraint
+                 validation silently swallow the submit event before our own JS
+                 validateSelectedFile() (and its styled error banner) ever runs. -->
+            <input id="fileInput" type="file" accept=".docx,.pdf,.pptx" class="sr-only" />
           </label>
           <select id="engagementSelect"
             class="block w-full rounded-md border border-[var(--border)] bg-[var(--fill-secondary)] px-3 py-2 text-[13px] text-[var(--text-secondary)]">
@@ -142,6 +145,8 @@
     </div>
 
     <div id="errorState" class="hidden rounded-[var(--radius)] border border-[var(--border-danger)]/30 bg-[var(--fill-danger)] p-6 text-[15px] leading-normal text-[var(--border-danger)]"></div>
+
+    <div id="agentErrorsWarning" class="hidden mb-4 rounded-[var(--radius)] border border-[var(--border-warning)]/30 bg-[var(--fill-warning)] p-3 text-[13px] leading-normal text-[var(--border-warning)]"></div>
 
     <div id="emptyState" class="hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-1)] p-10 text-center text-[15px] leading-normal text-[var(--text-muted)]">
       No findings yet — upload a document to begin.
@@ -301,7 +306,13 @@
     const container = document.getElementById("findingsListScroll");
     const filtered = activeFilter === "all" ? lastFindingsFlat : lastFindingsFlat.filter((f) => f.severity === activeFilter);
     if (filtered.length === 0) {
-      container.innerHTML = emptyState("No findings match the current filter.");
+      // Distinguish "genuinely nothing to find" from "filtered everything out" --
+      // the latter's wording ("no findings match...") would be actively misleading
+      // for the former, the most common path a passing document takes.
+      const message = lastFindingsFlat.length === 0
+        ? "No issues found — this document passed all checks."
+        : "No findings match the current filter.";
+      container.innerHTML = emptyState(message);
       return;
     }
     container.innerHTML = filtered.map(findingRow).join("");
@@ -337,6 +348,19 @@
     document.getElementById("fileChip").classList.remove("hidden");
     document.getElementById("fileChip").classList.add("flex");
 
+    // A partial pipeline failure (one or more agents down) still produces a report
+    // from whichever agents succeeded -- without this, that gap is invisible in the
+    // UI and looks identical to full, honest coverage.
+    const agentErrorsEl = document.getElementById("agentErrorsWarning");
+    const agentErrors = data.agent_errors || {};
+    const failedAgents = Object.keys(agentErrors);
+    if (failedAgents.length > 0) {
+      agentErrorsEl.textContent = `${failedAgents.length} of 4 checks failed and returned no findings (${failedAgents.join(", ")}) -- this report only reflects the checks that succeeded.`;
+      agentErrorsEl.classList.remove("hidden");
+    } else {
+      agentErrorsEl.classList.add("hidden");
+    }
+
     renderResultTiles();
     renderFilterTabs();
     renderFindingsList();
@@ -353,6 +377,7 @@
       lastFindingsFlat = [];
       document.getElementById("fileChip").classList.add("hidden");
       document.getElementById("fileChip").classList.remove("flex");
+      document.getElementById("agentErrorsWarning").classList.add("hidden");
       setAgentStatus("idle");
       renderResultTiles();
     }
@@ -514,13 +539,21 @@
     formData.append("engagement_type", engagementSelect.value);
 
     try {
-      const res = await fetch("/api/analyze", { method: "POST", body: formData });
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "X-DeliverableQA-Client": "dashboard" },
+        body: formData,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error((body && body.detail) || `Server returned HTTP ${res.status}`);
       }
       await loadFindings();
-      uploadForm.reset();
+      // Clear only the file input -- uploadForm.reset() would also reset
+      // engagementSelect back to its default option, silently switching a user's
+      // deliberate "Tax"/"Audit"/"Consulting" choice back to "Advisory" for their
+      // next upload with no visual cue that it happened.
+      fileInput.value = "";
       fileInputLabel.textContent = "Drop file or browse";
     } catch (err) {
       showAnalyzeError(

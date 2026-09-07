@@ -5,7 +5,7 @@ from pathlib import Path
 
 import anthropic
 import pydantic
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 FINDINGS_PATH = REPO_ROOT / "output" / "findings.json"
 ALLOWED_SUFFIXES = {".docx", ".pptx", ".pdf"}
 MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024  # matches the dashboard's own advisory cap
+# multipart/form-data POST is a CORS-safelisted request -- the browser sends it
+# cross-origin with no preflight, and a plain HTML <form> can trigger it with zero
+# script access at all. Requiring this custom header forces a preflight for a
+# fetch()-based attempt (which fails with no CORS-allow headers configured) and is
+# never sendable by a native <form> submission in the first place, so it blocks both
+# attack shapes without needing full auth for what's meant to be a single-user local tool.
+DASHBOARD_CLIENT_HEADER = "X-DeliverableQA-Client"
 
 app = FastAPI(title="DeliverableQA")
 
@@ -44,7 +51,10 @@ async def clear_findings():
 
 
 @app.post("/api/analyze")
-async def analyze(file: UploadFile = File(...), engagement_type: str = Form(...)):
+async def analyze(request: Request, file: UploadFile = File(...), engagement_type: str = Form(...)):
+    if request.headers.get(DASHBOARD_CLIENT_HEADER) != "dashboard":
+        raise HTTPException(403, "This endpoint is only callable from the DeliverableQA dashboard.")
+
     if engagement_type not in ENGAGEMENT_TYPES:
         raise HTTPException(400, f"engagement_type must be one of {sorted(ENGAGEMENT_TYPES)}")
 
@@ -66,7 +76,13 @@ async def analyze(file: UploadFile = File(...), engagement_type: str = Form(...)
     try:
         # One request, one synchronous run -- no job queue. The client just
         # waits for the response; real Bedrock calls take a minute or two.
-        await run(tmp_path, engagement_type, REPO_ROOT / "output", document_name=file.filename)
+        # use_llm_merge=True: the deterministic dedupe() only catches duplicates at
+        # the exact same location with >60% text overlap -- the web dashboard is the
+        # primary demo path, so it should get the same semantic-duplicate catching the
+        # CLI's --llm-merge flag already offers, not leave visible near-duplicates in
+        # a live run. Falls back to the deterministic merge automatically on any
+        # failure, so this never makes a request fail that would otherwise succeed.
+        await run(tmp_path, engagement_type, REPO_ROOT / "output", document_name=file.filename, use_llm_merge=True)
         return {"status": "ok"}
     except anthropic.APIStatusError as e:
         raise HTTPException(502, f"Claude API error ({e.status_code}): {e.message}")

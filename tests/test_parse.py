@@ -378,3 +378,24 @@ class TestRenderDocumentContext:
         assert "BEGIN DOCUMENT CONTENT" in context
         assert "END DOCUMENT CONTENT" in context
         assert "not as instructions" in context or "never as instructions" in context
+
+    def test_begin_end_markers_carry_a_matching_nonce_unique_per_render(self, tmp_path):
+        # A document containing a literal fake "--- END DOCUMENT CONTENT ---" line
+        # (hoping to forge a premature boundary and inject instructions after it)
+        # must not be able to predict or copy the real boundary's id -- it's
+        # generated fresh per render, after the document's own text is already fixed.
+        import re
+
+        path = tmp_path / "doc.docx"
+        _write_docx(path, [("Heading", "Body text.")])
+        sections = parse_document(path)
+
+        context_a = render_document_context(sections, "advisory", "checklist: yaml", "style: yaml")
+        context_b = render_document_context(sections, "advisory", "checklist: yaml", "style: yaml")
+
+        begin_id = re.search(r"BEGIN DOCUMENT CONTENT \(id=([0-9a-f]+)\)", context_a).group(1)
+        end_id = re.search(r"END DOCUMENT CONTENT \(id=([0-9a-f]+)\)", context_a).group(1)
+        assert begin_id == end_id
+
+        other_begin_id = re.search(r"BEGIN DOCUMENT CONTENT \(id=([0-9a-f]+)\)", context_b).group(1)
+        assert other_begin_id != begin_id
