@@ -3,6 +3,8 @@ from fastapi.testclient import TestClient
 
 import server
 
+CLIENT_HEADERS = {"X-DeliverableQA-Client": "dashboard"}
+
 
 def _fake_docx_bytes() -> bytes:
     # Content doesn't matter -- run() is mocked in every test that reaches it,
@@ -22,10 +24,52 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.docx", _fake_docx_bytes())},
             data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
+
+    def test_uses_llm_merge_for_better_cross_agent_duplicate_catching(self, monkeypatch):
+        # The web dashboard is the primary demo path -- it should get the same
+        # semantic-duplicate catching the CLI's --llm-merge flag already offers,
+        # not leave visible near-duplicate findings in a live run.
+        calls = []
+
+        async def _fake_run(*a, **kw):
+            calls.append(kw)
+            return {"dashboard": {"total_findings": 0}, "detailed_report": {"sections": {}}}
+
+        monkeypatch.setattr(server, "run", _fake_run)
+        client = TestClient(server.app)
+
+        client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
+        )
+
+        assert calls[0].get("use_llm_merge") is True
+
+    def test_rejects_request_missing_the_dashboard_client_header(self, monkeypatch):
+        # multipart/form-data POST is a CORS-safelisted request (no preflight) and is
+        # also exactly what a plain cross-site <form> can submit with zero script
+        # access -- requiring this header (which neither attack shape can supply)
+        # blocks both without needing full auth for a single-user local tool.
+        async def _should_not_be_called(*a, **kw):
+            raise AssertionError("run() should not be called without the client header")
+
+        monkeypatch.setattr(server, "run", _should_not_be_called)
+        client = TestClient(server.app)
+
+        resp = client.post(
+            "/api/analyze",
+            files={"file": ("doc.docx", _fake_docx_bytes())},
+            data={"engagement_type": "advisory"},
+        )
+
+        assert resp.status_code == 403
 
     def test_rejects_unknown_engagement_type(self, monkeypatch):
         async def _should_not_be_called(*a, **kw):
@@ -38,6 +82,7 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.docx", _fake_docx_bytes())},
             data={"engagement_type": "not-a-real-type"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 400
@@ -54,6 +99,7 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.txt", _fake_docx_bytes())},
             data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 400
@@ -70,6 +116,7 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.docx", _fake_docx_bytes())},
             data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 502
@@ -92,6 +139,7 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.docx", _fake_docx_bytes())},
             data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 502
@@ -109,6 +157,7 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.docx", b"this content is definitely longer than ten bytes")},
             data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 413
@@ -126,6 +175,7 @@ class TestAnalyze:
             "/api/analyze",
             files={"file": ("doc.docx", _fake_docx_bytes())},
             data={"engagement_type": "advisory"},
+            headers=CLIENT_HEADERS,
         )
 
         assert resp.status_code == 500

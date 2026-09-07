@@ -58,7 +58,7 @@ flowchart TD
     class CONS,BRAND,TONE,STRUCT agentStyle
 ```
 
-Amber = deterministic Python (no LLM call). Teal = agents, which always call Claude. Merge has an opt-in LLM-driven path too (`--llm-merge`) — see [Known limitations](#known-limitations).
+Amber = deterministic Python (no LLM call). Teal = agents, which always call Claude. Merge has an LLM-driven path too — always on for the web dashboard, opt-in via `--llm-merge` for the CLI — see [Known limitations](#known-limitations).
 
 ## Tech stack
 
@@ -69,12 +69,12 @@ Local-only — no cloud deployment, no client data leaves the machine.
 | Runtime | Python 3.14, orchestrated with LangGraph (parallel fan-out to 4 agents) |
 | LLM | Claude via Amazon Bedrock, model `global.anthropic.claude-sonnet-5`, forced tool-use for structured output |
 | Parsing | `python-docx`, `python-pptx`, `PyMuPDF` (+ Claude-vision OCR fallback for scanned/image-only docx, pptx, and pdf) |
-| Merge | Deterministic dedup by default (`orchestrator/merge.py`); optional `--llm-merge` for semantic cross-section dedup (`orchestrator/llm_merge.py`) |
+| Merge | Deterministic dedup (`orchestrator/merge.py`) by default for the CLI; the web dashboard always uses the semantic cross-section dedup (`orchestrator/llm_merge.py`), also available to the CLI via `--llm-merge` |
 | Delta | Deterministic location + text-similarity match by default (`orchestrator/merge.py`); optional `--llm-delta` to refine unmatched leftovers semantically (`orchestrator/llm_delta.py`) |
 | Dashboard | `dashboard/index.html` — Tailwind CDN, no build step |
 | Server | FastAPI (`server.py`) — upload/analyze, findings, clear endpoints |
 | Package mgmt | `uv` (`pyproject.toml` + `uv.lock`) |
-| Tests | pytest, 106 tests, Bedrock client fully mocked |
+| Tests | pytest, 131 tests, Bedrock client fully mocked |
 
 > Forced tool-use instead of structured outputs: this Bedrock route doesn't support `strict` schemas, and a `$ref`-based schema made Claude stringify nested fields unreliably. See `agents/schema.py`.
 
@@ -107,7 +107,7 @@ deliverableqa-agent/
 ├── schema/finding.schema.json
 ├── dashboard/index.html    # 3-panel Tailwind app
 ├── samples/                # planted-error sample deliverable per engagement type
-├── tests/                  # pytest suite, 106 tests
+├── tests/                  # pytest suite, 131 tests
 │
 ├── .agents/skills/deliverableqa-kickoff/   # kickoff skill (Pi)
 └── .claude/skills/deliverableqa-kickoff/   # kickoff skill (Claude Code)
@@ -172,7 +172,7 @@ Run tests:
 uv run pytest
 ```
 
-106 tests, no AWS credentials required — the Bedrock client is mocked throughout.
+131 tests, no AWS credentials required — the Bedrock client is mocked throughout.
 
 > Add `--native-tls` to any `uv run`/`uv sync` command if you're behind a TLS-intercepting corporate proxy.
 
@@ -199,8 +199,8 @@ $lnk.Save()
 ## Known limitations
 
 - **Scanned/image-only pages are OCR'd via Claude vision** — same Bedrock client/model as review, ~$0.0075 and a few seconds per page/image/slide; only triggers when normal extraction finds nothing.
-- **Single local user** — no auth, no job queue; concurrent uploads can race.
-- **`--llm-merge` is opt-in** — roughly 2x latency and ~$0.09/call; only worth it when you suspect a cross-section duplicate the default merge structurally can't see.
+- **Single local user** — no real auth, no job queue; concurrent uploads can race. `/api/analyze` does require a custom header the dashboard's own JS sets, which blocks a drive-by cross-site request from another page in the same browser, but it is not authentication — anything with direct API access (e.g. `curl` on the same machine) can still call it.
+- **The web dashboard always pays for `--llm-merge`-equivalent semantic dedup** — roughly 2x latency and ~$0.09/call on every analysis, to avoid visible near-duplicate findings in a live demo. The CLI still defaults to the cheaper deterministic merge, with `--llm-merge` opt-in for the same behavior.
 - **Some server errors return a bare HTTP 500** — check `server.log` (or terminal output) for the real traceback.
 - **`--llm-delta` is opt-in** — refines `--previous-findings`' delta with one extra Bedrock call (~$0.0072, ~5s, measured), only when the deterministic delta leaves findings unmatched on both sides; catches a finding that's both reworded and relabeled to a new section between runs, which the default delta structurally can't see.
 

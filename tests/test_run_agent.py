@@ -65,6 +65,16 @@ class TestRunAgent:
         with pytest.raises(RuntimeError, match="no tool_use block"):
             await run_agent(client, "consistency", "system prompt", "document context")
 
+    async def test_raises_a_clear_error_when_response_is_truncated_at_max_tokens(self):
+        # A document with enough real issues to blow past the token cap mid-JSON
+        # would otherwise fail deep inside JSON parsing/validation with an opaque
+        # error -- this must be caught up front, before even looking for a tool_use
+        # block, so the failure is diagnosable.
+        client = _mock_client_returning([_tool_use_block({"agent": "consistency", "findings": []})], stop_reason="max_tokens")
+
+        with pytest.raises(RuntimeError, match="truncated"):
+            await run_agent(client, "consistency", "system prompt", "document context")
+
     async def test_namespaces_finding_ids_by_the_invoking_agent(self):
         # The schema only promises id is "unique per agent run" -- two agents can
         # independently emit the same id (e.g. both "1"). Namespacing here, at the

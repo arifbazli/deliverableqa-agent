@@ -69,6 +69,24 @@ async def llm_compute_delta(client: AsyncAnthropicBedrock, previous_report: dict
     if not old_candidates or not new_candidates:
         return det
 
+    old_ids = [f["id"] for f in old_candidates]
+    new_ids = [f["id"] for f in new_candidates]
+    if len(old_ids) != len(set(old_ids)) or len(new_ids) != len(set(new_ids)):
+        # id is only documented as unique per agent run, not globally -- a report
+        # from before per-agent id namespacing was added can have two genuinely
+        # different findings sharing one id. The dicts below key on id, so a
+        # collision would silently keep only one of them; the LLM would never see
+        # (or be able to report on) the one that got dropped, and the "every old_id
+        # accounted for" check further down validates against the already-collapsed
+        # id set, so it can't catch this either. Skip straight to the deterministic
+        # result, which never keys by id and so can't lose a finding this way.
+        logger.warning(
+            "Duplicate finding id(s) among delta leftovers -- skipping LLM delta "
+            "refinement and using the deterministic result, since id-keyed matching "
+            "can't safely disambiguate them."
+        )
+        return det
+
     valid_old_ids = {f["id"] for f in old_candidates}
     valid_new_ids = {f["id"] for f in new_candidates}
     old_by_id = {f["id"]: f for f in old_candidates}

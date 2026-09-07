@@ -102,7 +102,12 @@
     },
     "document_name": { "type": "string" },
     "engagement_type": { "type": "string", "enum": ["advisory", "audit", "tax", "consulting"] },
-    "delta": { "$ref": "#/definitions/delta" }
+    "delta": { "$ref": "#/definitions/delta" },
+    "agent_errors": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Present only when one or more (but not all) specialist agents failed and returned no findings. Keyed by agent name, value is a human-readable error summary. The rest of the report reflects only the agents that succeeded. Absent entirely on a fully successful run; if every agent fails, the run raises instead of producing a report at all."
+    }
   },
   "required": ["dashboard", "detailed_report", "document_name", "engagement_type"]
 }

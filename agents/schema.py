@@ -132,10 +132,13 @@ async def transcribe_page_image(client: AsyncAnthropicBedrock, image_b64: str, m
     return await transcribe_page_images(client, [(image_b64, media_type)])
 
 
+AGENT_MAX_TOKENS = 16000
+
+
 async def run_agent(client: AsyncAnthropicBedrock, agent_name: AgentName, prompt: str, document_context: str) -> AgentFindings:
     response = await client.messages.create(
         model=MODEL,
-        max_tokens=16000,
+        max_tokens=AGENT_MAX_TOKENS,
         system=prompt,
         tools=[{
             "name": "report_findings",
@@ -145,6 +148,16 @@ async def run_agent(client: AsyncAnthropicBedrock, agent_name: AgentName, prompt
         tool_choice={"type": "tool", "name": "report_findings"},
         messages=[{"role": "user", "content": document_context}],
     )
+    if response.stop_reason == "max_tokens":
+        # A document with enough real issues to blow past the token cap mid-JSON
+        # would otherwise fail deep inside JSON parsing or schema validation with an
+        # opaque error -- this gives dispatch.py's per-agent failure handling (and
+        # anyone reading server.log) a clear, diagnosable reason instead.
+        raise RuntimeError(
+            f"{agent_name}: response was truncated at the {AGENT_MAX_TOKENS}-token limit "
+            "before completing its findings -- the document likely has more findings "
+            "than fit in one response."
+        )
     for block in response.content:
         if block.type == "tool_use":
             result = AgentFindings.model_validate(_repair_tool_input(block.input))
